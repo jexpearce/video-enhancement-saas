@@ -21,6 +21,13 @@ scipy==1.11.4
 numpy==1.24.3
 wikipedia==1.4.0
 
+# Image Intelligence (Phase 2 Days 23-24)
+opencv-python==4.8.1.78
+mediapipe==0.10.7
+scikit-image==0.22.0
+Pillow==10.1.0
+scikit-learn==1.3.2
+
 # Database
 sqlalchemy==2.0.23
 alembic==1.13.0
