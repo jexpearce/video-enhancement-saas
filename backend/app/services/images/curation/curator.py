@@ -2,8 +2,8 @@
 ML-Powered Image Curator - Phase 2 Days 23-24
 
 Advanced image curation system using:
-- CLIP model for image-text similarity scoring
-- Face detection for person entities
+- CLIP model for image-text similarity scoring (with graceful fallbacks)
+- Face detection for person entities (with error handling)
 - Computer vision quality assessment
 - Context-aware relevance scoring
 """
@@ -20,15 +20,28 @@ import hashlib
 import numpy as np
 from PIL import Image
 import requests
-from transformers import CLIPProcessor, CLIPModel
-import cv2
-import mediapipe as mp
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..providers.base import ImageResult, ImageLicense
 from ...nlp.entity_enricher import EnrichedEntity
 
 logger = logging.getLogger(__name__)
+
+# ML imports with error handling
+try:
+    from transformers import CLIPProcessor, CLIPModel
+    CLIP_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"CLIP not available: {e}")
+    CLIP_AVAILABLE = False
+
+try:
+    import cv2
+    import mediapipe as mp
+    CV2_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"OpenCV/MediaPipe not available: {e}")
+    CV2_AVAILABLE = False
 
 @dataclass
 class CuratedImage:
@@ -66,7 +79,7 @@ class WordContext:
     emphasis_score: float
 
 class ImageCurator:
-    """ML-powered image curation system."""
+    """ML-powered image curation system with robust error handling."""
     
     def __init__(self, config: Optional[Dict] = None):
         """
@@ -77,10 +90,12 @@ class ImageCurator:
         """
         self.config = config or {}
         
-        # Initialize CLIP model for image-text similarity
-        self._init_clip_model()
+        # Model availability flags
+        self.clip_available = False
+        self.face_detection_available = False
         
-        # Initialize face detection
+        # Initialize models with error handling
+        self._init_clip_model()
         self._init_face_detection()
         
         # Curation parameters
@@ -88,35 +103,92 @@ class ImageCurator:
         self.min_relevance_threshold = self.config.get('min_relevance_threshold', 0.3)
         self.diversity_penalty_threshold = self.config.get('diversity_penalty', 0.85)
         
-        # Scoring weights
-        self.scoring_weights = {
-            'clip_similarity': 0.4,
-            'original_relevance': 0.3,
-            'quality_score': 0.2,
-            'entity_specific': 0.1
-        }
+        # Scoring weights (adjusted based on available models)
+        self._init_scoring_weights()
+        
+        # Cache for model predictions
+        self._clip_cache = {}
+        self._face_cache = {}
         
     def _init_clip_model(self):
-        """Initialize CLIP model for image-text similarity."""
+        """Initialize CLIP model with comprehensive error handling."""
+        if not CLIP_AVAILABLE:
+            logger.warning("CLIP dependencies not available. Using text-based fallback.")
+            self.clip_model = None
+            self.clip_processor = None
+            return
+            
         try:
             model_name = self.config.get('clip_model', "openai/clip-vit-base-patch32")
             logger.info(f"Loading CLIP model: {model_name}")
             
+            # Check if CUDA is available
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"Using device: {device}")
+            
+            # Load model 
             self.clip_model = CLIPModel.from_pretrained(model_name)
             self.clip_processor = CLIPProcessor.from_pretrained(model_name)
             
+            # Move to device if CUDA available
+            if device == "cuda":
+                self.clip_model = self.clip_model.to(device)
+            
             # Set to evaluation mode
             self.clip_model.eval()
+            self.device = device
             
-            logger.info("CLIP model loaded successfully")
+            # Test the model with a simple query
+            test_successful = self._test_clip_model()
             
+            if test_successful:
+                self.clip_available = True
+                logger.info("CLIP model loaded and tested successfully")
+            else:
+                logger.error("CLIP model failed initial test")
+                self._disable_clip_model()
+                
         except Exception as e:
             logger.error(f"Failed to load CLIP model: {e}")
-            self.clip_model = None
-            self.clip_processor = None
+            self._disable_clip_model()
+            
+    def _test_clip_model(self) -> bool:
+        """Test CLIP model with a simple query."""
+        try:
+            if not self.clip_model or not self.clip_processor:
+                return False
+                
+            # Simple test
+            inputs = self.clip_processor(
+                text=["a photo"], 
+                images=None, 
+                return_tensors="pt", 
+                padding=True
+            )
+            
+            with torch.no_grad():
+                _ = self.clip_model.get_text_features(**inputs)
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"CLIP model test failed: {e}")
+            return False
+            
+    def _disable_clip_model(self):
+        """Disable CLIP model and clean up."""
+        self.clip_model = None
+        self.clip_processor = None
+        self.clip_available = False
+        logger.warning("CLIP model disabled. Using text-based similarity fallback.")
             
     def _init_face_detection(self):
-        """Initialize face detection for person entities."""
+        """Initialize face detection with error handling."""
+        if not CV2_AVAILABLE:
+            logger.warning("OpenCV/MediaPipe not available. Face detection disabled.")
+            self.face_detection = None
+            return
+            
         try:
             # Initialize MediaPipe face detection
             self.mp_face_detection = mp.solutions.face_detection
@@ -125,12 +197,57 @@ class ImageCurator:
                 min_detection_confidence=0.6
             )
             
-            logger.info("Face detection initialized successfully")
+            # Test face detection
+            test_successful = self._test_face_detection()
             
+            if test_successful:
+                self.face_detection_available = True
+                logger.info("Face detection initialized successfully")
+            else:
+                logger.error("Face detection failed initial test")
+                self.face_detection = None
+                
         except Exception as e:
             logger.error(f"Failed to initialize face detection: {e}")
             self.face_detection = None
             
+    def _test_face_detection(self) -> bool:
+        """Test face detection with a simple image."""
+        try:
+            if not self.face_detection:
+                return False
+                
+            # Create a simple test image
+            test_image = np.zeros((100, 100, 3), dtype=np.uint8)
+            _ = self.face_detection.process(test_image)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Face detection test failed: {e}")
+            return False
+            
+    def _init_scoring_weights(self):
+        """Initialize scoring weights based on available models."""
+        if self.clip_available:
+            # CLIP available - use ML-heavy weighting
+            self.scoring_weights = {
+                'clip_similarity': 0.4,
+                'original_relevance': 0.3,
+                'quality_score': 0.2,
+                'entity_specific': 0.1
+            }
+        else:
+            # No CLIP - rely more on text similarity and quality
+            self.scoring_weights = {
+                'clip_similarity': 0.0,  # Not available
+                'original_relevance': 0.5,  # Increased weight
+                'quality_score': 0.3,      # Increased weight
+                'entity_specific': 0.2     # Increased weight
+            }
+            
+        logger.info(f"Scoring weights configured: {self.scoring_weights}")
+
     async def curate_entity_images(
         self,
         entity: EnrichedEntity,
@@ -138,7 +255,7 @@ class ImageCurator:
         word_context: Optional[WordContext] = None
     ) -> List[CuratedImage]:
         """
-        Select and rank the best images for an entity using ML.
+        Select and rank the best images for an entity using ML with fallbacks.
         
         Args:
             entity: The entity to find images for
@@ -162,11 +279,11 @@ class ImageCurator:
             if not valid_images:
                 return []
             
-            # 2. Calculate CLIP-based relevance scores
-            clip_scores = await self._calculate_clip_relevance(entity, valid_images, word_context)
+            # 2. Calculate relevance scores (with fallbacks)
+            clip_scores = await self._calculate_clip_relevance_safe(entity, valid_images, word_context)
             
-            # 3. Apply entity-type specific scoring
-            entity_scores = await self._calculate_entity_specific_scores(entity, valid_images)
+            # 3. Apply entity-type specific scoring (with fallbacks)
+            entity_scores = await self._calculate_entity_specific_scores_safe(entity, valid_images)
             
             # 4. Combine all scores
             curated_images = []
@@ -184,9 +301,13 @@ class ImageCurator:
                     'clip_score': clip_scores[i],
                     'entity_specific_score': entity_scores[i],
                     'quality_bonus': max(0, image.quality_score - 0.5) * 0.1,
-                    'clip_bonus': max(0, clip_scores[i] - 0.7) * 0.1,
+                    'clip_bonus': max(0, clip_scores[i] - 0.7) * 0.1 if self.clip_available else 0.0,
                     'curation_timestamp': datetime.utcnow(),
-                    'curation_version': '1.0'
+                    'curation_version': '1.0',
+                    'models_used': {
+                        'clip': self.clip_available,
+                        'face_detection': self.face_detection_available
+                    }
                 }
                 
                 curated_image = CuratedImage(
@@ -199,417 +320,562 @@ class ImageCurator:
                 
                 curated_images.append(curated_image)
             
-            # 5. Apply diversity penalty and select top images
-            diverse_images = self._select_diverse_images(curated_images, self.max_images_per_entity)
+            # 5. Select diverse set of images
+            selected_images = self._select_diverse_images(
+                curated_images, 
+                self.max_images_per_entity
+            )
             
-            # 6. Sort by final score
-            diverse_images.sort(key=lambda x: x.final_score, reverse=True)
+            logger.info(f"Curated {len(selected_images)} images for entity: {entity.text}")
             
-            logger.info(f"Successfully curated {len(diverse_images)} images for {entity.text}")
-            return diverse_images
+            return selected_images
             
         except Exception as e:
-            logger.error(f"Error curating images for entity {entity.text}: {e}")
+            logger.error(f"Image curation failed for entity {entity.text}: {e}")
+            
+            # Return basic ranking based on original scores
+            return self._fallback_curation(entity, candidate_images)
+
+    def _fallback_curation(self, entity: EnrichedEntity, images: List[ImageResult]) -> List[CuratedImage]:
+        """Fallback curation when ML models fail."""
+        try:
+            logger.warning(f"Using fallback curation for entity: {entity.text}")
+            
+            # Sort by original quality and relevance scores
+            sorted_images = sorted(
+                images, 
+                key=lambda img: (img.quality_score + img.relevance_score) / 2, 
+                reverse=True
+            )
+            
+            curated_images = []
+            for i, image in enumerate(sorted_images[:self.max_images_per_entity]):
+                curation_metadata = {
+                    'fallback_used': True,
+                    'curation_timestamp': datetime.utcnow(),
+                    'models_used': {'clip': False, 'face_detection': False}
+                }
+                
+                curated_image = CuratedImage(
+                    entity_id=getattr(entity, 'id', entity.text),
+                    image=image,
+                    relevance_score=image.relevance_score,
+                    curation_metadata=curation_metadata
+                )
+                
+                curated_images.append(curated_image)
+            
+            return curated_images
+            
+        except Exception as e:
+            logger.error(f"Fallback curation failed: {e}")
             return []
-    
+
+    async def _calculate_clip_relevance_safe(
+        self,
+        entity: EnrichedEntity,
+        images: List[ImageResult],
+        word_context: Optional[WordContext] = None
+    ) -> List[float]:
+        """Calculate CLIP relevance with error handling and fallbacks."""
+        
+        if not self.clip_available:
+            logger.debug("CLIP not available, using text similarity fallback")
+            return self._text_similarity_fallback(entity, images, word_context)
+            
+        try:
+            return await self._calculate_clip_relevance(entity, images, word_context)
+            
+        except Exception as e:
+            logger.error(f"CLIP similarity calculation failed: {e}")
+            logger.warning("Falling back to text similarity")
+            
+            # Disable CLIP for future requests
+            self._disable_clip_model()
+            
+            return self._text_similarity_fallback(entity, images, word_context)
+
+    def _text_similarity_fallback(
+        self,
+        entity: EnrichedEntity,
+        images: List[ImageResult],
+        word_context: Optional[WordContext] = None
+    ) -> List[float]:
+        """Text-based similarity fallback when CLIP is unavailable."""
+        
+        # Prepare search terms
+        search_terms = [entity.text.lower()]
+        if hasattr(entity, 'aliases') and entity.aliases:
+            search_terms.extend([alias.lower() for alias in entity.aliases])
+        if word_context:
+            search_terms.append(word_context.word.lower())
+            
+        scores = []
+        for image in images:
+            # Calculate text similarity with image title and description
+            image_text = f"{image.title} {getattr(image, 'description', '')}".lower()
+            
+            # Find best matching term
+            max_similarity = 0.0
+            for term in search_terms:
+                similarity = self._simple_text_similarity(term, image_text)
+                max_similarity = max(max_similarity, similarity)
+                
+            scores.append(max_similarity)
+            
+        return scores
+        
+    def _simple_text_similarity(self, term: str, text: str) -> float:
+        """Simple text similarity calculation."""
+        if term in text:
+            return 0.8  # High similarity for exact match
+        
+        # Word overlap similarity
+        term_words = set(term.split())
+        text_words = set(text.split())
+        
+        if term_words and text_words:
+            overlap = len(term_words.intersection(text_words))
+            return min(0.7, overlap / len(term_words))
+            
+        return 0.1  # Base similarity
+
+    async def _calculate_entity_specific_scores_safe(
+        self,
+        entity: EnrichedEntity,
+        images: List[ImageResult]
+    ) -> List[float]:
+        """Calculate entity-specific scores with error handling."""
+        
+        try:
+            return await self._calculate_entity_specific_scores(entity, images)
+            
+        except Exception as e:
+            logger.error(f"Entity-specific scoring failed: {e}")
+            
+            # Return neutral scores
+            return [0.5] * len(images)
+
     async def _filter_valid_images(self, images: List[ImageResult]) -> List[ImageResult]:
-        """Filter images by basic quality and legal criteria."""
+        """Filter images by basic quality and compliance criteria."""
         valid_images = []
         
         for image in images:
-            # Check license compliance
-            if not self._is_license_compliant(image.license):
-                continue
+            try:
+                # Check minimum dimensions
+                if image.width < 400 or image.height < 300:
+                    continue
                 
-            # Check basic quality thresholds
-            if image.quality_score < self.min_relevance_threshold:
-                continue
+                # Check aspect ratio (avoid extreme ratios)
+                aspect_ratio = image.width / image.height
+                if aspect_ratio < 0.3 or aspect_ratio > 3.0:
+                    continue
                 
-            # Check image dimensions (minimum viable size)
-            if image.width < 400 or image.height < 300:
-                continue
+                # Check license compliance
+                if hasattr(image, 'license') and not self._is_license_compliant(getattr(image, 'license', 'unknown')):
+                    continue
                 
-            # Check if image URL is accessible (basic validation)
-            if not image.image_url or not image.thumbnail_url:
-                continue
+                # Check quality score threshold
+                if image.quality_score < self.min_relevance_threshold:
+                    continue
                 
-            valid_images.append(image)
-            
+                valid_images.append(image)
+                
+            except Exception as e:
+                logger.warning(f"Error filtering image {image.url}: {e}")
+                continue
+        
         return valid_images
     
-    def _is_license_compliant(self, license: ImageLicense) -> bool:
+    def _is_license_compliant(self, license: str) -> bool:
         """Check if image license is compliant for commercial use."""
-        compliant_licenses = {
-            ImageLicense.CREATIVE_COMMONS_ZERO,
-            ImageLicense.CREATIVE_COMMONS_BY,
-            ImageLicense.PUBLIC_DOMAIN,
-            ImageLicense.COMMERCIAL_ALLOWED
-        }
-        return license in compliant_licenses
-    
+        compliant_licenses = [
+            "free", "cc0", "public_domain", "creative_commons_zero",
+            "commercial_allowed", "unsplash", "pexels"
+        ]
+        
+        return license.lower() in compliant_licenses
+
     async def _calculate_clip_relevance(
         self,
         entity: EnrichedEntity,
         images: List[ImageResult],
         word_context: Optional[WordContext] = None
     ) -> List[float]:
-        """Calculate relevance scores using CLIP model."""
-        if not self.clip_model or not self.clip_processor:
-            logger.warning("CLIP model not available, using fallback scores")
-            return [image.relevance_score for image in images]
+        """Calculate CLIP-based relevance scores."""
+        
+        if not self.clip_available:
+            return [0.5] * len(images)  # Neutral scores
         
         try:
             # Prepare text queries for CLIP
-            text_queries = self._prepare_clip_queries(entity, word_context)
+            queries = self._prepare_clip_queries(entity, word_context)
             
-            # Process images and calculate similarities
+            # Calculate similarities for each image
             similarities = []
             
             for image in images:
                 try:
+                    # Check cache first
+                    cache_key = f"{image.url}:{':'.join(queries)}"
+                    if cache_key in self._clip_cache:
+                        similarities.append(self._clip_cache[cache_key])
+                        continue
+                    
                     # Download and process image
-                    image_data = await self._download_image(image.thumbnail_url)
-                    pil_image = Image.open(io.BytesIO(image_data))
+                    image_data = await self._download_image_safe(image.url)
+                    if not image_data:
+                        similarities.append(0.1)  # Low score for failed downloads
+                        continue
                     
-                    # Calculate similarity with each text query
-                    image_similarities = []
+                    # Calculate CLIP similarity
+                    similarity = await self._calculate_clip_similarity(image_data, queries)
                     
-                    for query in text_queries:
-                        # Process inputs
-                        inputs = self.clip_processor(
-                            text=[query],
-                            images=[pil_image],
-                            return_tensors="pt",
-                            padding=True
-                        )
-                        
-                        # Calculate similarity
-                        with torch.no_grad():
-                            outputs = self.clip_model(**inputs)
-                            similarity = torch.cosine_similarity(
-                                outputs.text_embeds,
-                                outputs.image_embeds
-                            ).item()
-                            
-                        image_similarities.append(similarity)
-                    
-                    # Use maximum similarity across queries
-                    max_similarity = max(image_similarities)
-                    similarities.append(max_similarity)
+                    # Cache result
+                    self._clip_cache[cache_key] = similarity
+                    similarities.append(similarity)
                     
                 except Exception as e:
-                    logger.warning(f"Failed to process image {image.image_url}: {e}")
-                    similarities.append(0.0)
-            
-            # Normalize similarities to [0, 1] range
-            if similarities:
-                min_sim = min(similarities)
-                max_sim = max(similarities)
-                if max_sim > min_sim:
-                    similarities = [(s - min_sim) / (max_sim - min_sim) for s in similarities]
-            
+                    logger.warning(f"CLIP similarity failed for image {image.url}: {e}")
+                    similarities.append(0.1)
+                    
             return similarities
             
         except Exception as e:
-            logger.error(f"Error calculating CLIP relevance: {e}")
-            return [image.relevance_score for image in images]
-    
+            logger.error(f"CLIP relevance calculation failed: {e}")
+            return [0.5] * len(images)
+
+    async def _download_image_safe(self, url: str) -> Optional[bytes]:
+        """Safely download image with error handling."""
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            return response.content
+        except Exception as e:
+            logger.warning(f"Failed to download image {url}: {e}")
+            return None
+
+    async def _calculate_clip_similarity(self, image_data: bytes, queries: List[str]) -> float:
+        """Calculate CLIP similarity with error handling."""
+        try:
+            # Load image
+            image = Image.open(io.BytesIO(image_data)).convert('RGB')
+            
+            # Process with CLIP
+            inputs = self.clip_processor(
+                text=queries, 
+                images=image, 
+                return_tensors="pt", 
+                padding=True
+            )
+            
+            if self.device == "cuda":
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = self.clip_model(**inputs)
+                
+                # Calculate similarity
+                image_embeds = outputs.image_embeds
+                text_embeds = outputs.text_embeds
+                
+                # Normalize embeddings
+                image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
+                text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
+                
+                # Calculate similarity (take max across all queries)
+                similarities = torch.matmul(text_embeds, image_embeds.T)
+                max_similarity = similarities.max().item()
+                
+            return max(0.0, min(1.0, max_similarity))
+            
+        except Exception as e:
+            logger.error(f"CLIP similarity calculation error: {e}")
+            return 0.5  # Neutral score on error
+
     def _prepare_clip_queries(self, entity: EnrichedEntity, word_context: Optional[WordContext]) -> List[str]:
-        """Prepare text queries for CLIP similarity calculation."""
-        queries = []
+        """Prepare text queries for CLIP model."""
+        queries = [f"a photo of {entity.text}"]
         
-        # Base entity text
-        queries.append(entity.text)
+        # Add entity-specific queries
+        if hasattr(entity, 'type'):
+            if entity.type == 'PERSON':
+                queries.extend([
+                    f"portrait of {entity.text}",
+                    f"{entity.text} person"
+                ])
+            elif entity.type in ['ORG', 'ORGANIZATION']:
+                queries.extend([
+                    f"{entity.text} logo",
+                    f"{entity.text} company"
+                ])
+            elif entity.type in ['GPE', 'LOC', 'LOCATION']:
+                queries.extend([
+                    f"{entity.text} place",
+                    f"{entity.text} landmark"
+                ])
         
-        # Canonical name if different
-        if entity.canonical_name and entity.canonical_name != entity.text:
-            queries.append(entity.canonical_name)
+        # Add context-based queries
+        if word_context:
+            queries.append(f"{entity.text} {word_context.surrounding_text}")
         
-        # Entity-type specific queries
-        if entity.entity_type == "PERSON":
-            queries.extend([
-                f"{entity.text} portrait",
-                f"{entity.text} headshot",
-                f"{entity.text} professional photo"
-            ])
-        elif entity.entity_type in ["LOCATION", "GPE", "LOC"]:
-            queries.extend([
-                f"{entity.text} landmark",
-                f"{entity.text} skyline",
-                f"{entity.text} aerial view"
-            ])
-        elif entity.entity_type == "ORG":
-            queries.extend([
-                f"{entity.text} logo",
-                f"{entity.text} building",
-                f"{entity.text} headquarters"
-            ])
-        
-        # Add context from surrounding words if available
-        if word_context and word_context.surrounding_text:
-            context_query = f"{entity.text} {word_context.surrounding_text}"
-            queries.append(context_query)
-        
-        return queries[:5]  # Limit to 5 queries for efficiency
-    
+        return queries[:3]  # Limit to 3 queries for efficiency
+
     async def _calculate_entity_specific_scores(
         self,
         entity: EnrichedEntity,
         images: List[ImageResult]
     ) -> List[float]:
         """Calculate entity-type specific scores."""
-        if entity.entity_type == "PERSON":
-            return await self._score_person_images(images)
-        elif entity.entity_type in ["LOCATION", "GPE", "LOC"]:
-            return await self._score_location_images(images)
-        elif entity.entity_type == "ORG":
-            return await self._score_organization_images(images)
-        else:
-            return [0.5 for _ in images]  # Neutral score for other types
-    
-    async def _score_person_images(self, images: List[ImageResult]) -> List[float]:
-        """Score images for person entities using face detection."""
-        scores = []
         
+        if hasattr(entity, 'type'):
+            if entity.type == 'PERSON':
+                return await self._score_person_images_safe(images)
+            elif entity.type in ['GPE', 'LOC', 'LOCATION']:
+                return await self._score_location_images_safe(images)
+            elif entity.type in ['ORG', 'ORGANIZATION']:
+                return await self._score_organization_images_safe(images)
+        
+        # Default scoring
+        return [0.5] * len(images)
+
+    async def _score_person_images_safe(self, images: List[ImageResult]) -> List[float]:
+        """Score person images with face detection (with fallbacks)."""
+        
+        if not self.face_detection_available:
+            logger.debug("Face detection not available, using heuristic scoring")
+            return self._score_person_images_heuristic(images)
+        
+        try:
+            return await self._score_person_images(images)
+        except Exception as e:
+            logger.error(f"Face detection scoring failed: {e}")
+            return self._score_person_images_heuristic(images)
+
+    def _score_person_images_heuristic(self, images: List[ImageResult]) -> List[float]:
+        """Heuristic scoring for person images when face detection fails."""
+        scores = []
         for image in images:
             score = 0.5  # Base score
             
-            try:
-                if self.face_detection:
-                    # Download and analyze image
-                    image_data = await self._download_image(image.thumbnail_url)
-                    
-                    # Convert to cv2 format
-                    nparr = np.frombuffer(image_data, np.uint8)
-                    cv_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-                    
-                    # Detect faces
-                    results = self.face_detection.process(rgb_image)
-                    
-                    if results.detections:
-                        num_faces = len(results.detections)
-                        
-                        if num_faces == 1:
-                            # Single person portrait - excellent
-                            score = 1.0
-                            
-                            # Check face quality/size
-                            detection = results.detections[0]
-                            bbox = detection.location_data.relative_bounding_box
-                            face_area = bbox.width * bbox.height
-                            
-                            if face_area > 0.1:  # Face takes up >10% of image
-                                score = 1.0
-                            elif face_area > 0.05:  # Face takes up >5% of image
-                                score = 0.8
-                            else:
-                                score = 0.6
-                                
-                        elif num_faces <= 3:
-                            # Small group - good
-                            score = 0.7
-                        else:
-                            # Large group - less ideal
-                            score = 0.4
-                    else:
-                        # No faces detected - poor for person entity
-                        score = 0.2
-                        
-            except Exception as e:
-                logger.warning(f"Face detection failed for image: {e}")
-                score = 0.3  # Fallback score
-                
-            scores.append(score)
+            # Boost for portrait orientation
+            if hasattr(image, 'width') and hasattr(image, 'height'):
+                aspect_ratio = image.width / image.height
+                if 0.6 <= aspect_ratio <= 1.0:  # Portrait-ish
+                    score += 0.2
+            
+            # Boost for person-related keywords in title
+            if hasattr(image, 'title'):
+                title_lower = image.title.lower()
+                person_keywords = ['person', 'portrait', 'face', 'people', 'man', 'woman']
+                if any(keyword in title_lower for keyword in person_keywords):
+                    score += 0.3
+            
+            scores.append(min(1.0, score))
             
         return scores
-    
+
+    async def _score_location_images_safe(self, images: List[ImageResult]) -> List[float]:
+        """Score location images safely."""
+        try:
+            return await self._score_location_images(images)
+        except Exception as e:
+            logger.error(f"Location scoring failed: {e}")
+            return [0.5] * len(images)
+
+    async def _score_organization_images_safe(self, images: List[ImageResult]) -> List[float]:
+        """Score organization images safely."""
+        try:
+            return await self._score_organization_images(images)
+        except Exception as e:
+            logger.error(f"Organization scoring failed: {e}")
+            return [0.5] * len(images)
+
+    async def _score_person_images(self, images: List[ImageResult]) -> List[float]:
+        """Score person images using face detection."""
+        scores = []
+        
+        for image in images:
+            try:
+                score = 0.5  # Base score
+                
+                # Download and analyze image
+                image_data = await self._download_image_safe(image.url)
+                if not image_data:
+                    scores.append(score)
+                    continue
+                
+                # Face detection
+                face_result = await self._detect_faces(image_data)
+                if face_result and face_result.get('face_count', 0) > 0:
+                    face_quality = face_result.get('face_quality_score', 0.5)
+                    score += 0.3 * face_quality
+                
+                scores.append(min(1.0, score))
+                
+            except Exception as e:
+                logger.warning(f"Person image scoring failed for {image.url}: {e}")
+                scores.append(0.5)
+        
+        return scores
+
+    async def _detect_faces(self, image_data: bytes) -> Optional[Dict]:
+        """Detect faces in image with error handling."""
+        try:
+            if not self.face_detection:
+                return None
+            
+            # Convert to OpenCV format
+            image_array = np.frombuffer(image_data, np.uint8)
+            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+            # Process with MediaPipe
+            results = self.face_detection.process(image_rgb)
+            
+            if results.detections:
+                face_count = len(results.detections)
+                
+                # Calculate quality score based on face size and confidence
+                total_confidence = sum(detection.score[0] for detection in results.detections)
+                avg_confidence = total_confidence / face_count
+                
+                return {
+                    'face_count': face_count,
+                    'face_quality_score': avg_confidence,
+                    'faces': results.detections
+                }
+            
+            return {'face_count': 0, 'face_quality_score': 0.0}
+            
+        except Exception as e:
+            logger.error(f"Face detection failed: {e}")
+            return None
+
     async def _score_location_images(self, images: List[ImageResult]) -> List[float]:
-        """Score images for location entities."""
+        """Score location images based on visual characteristics."""
         scores = []
         
         for image in images:
             score = 0.5  # Base score
-            
-            # Analyze image title and description for location indicators
-            title_lower = (image.title or "").lower()
-            desc_lower = (image.description or "").lower()
-            
-            location_keywords = [
-                'landmark', 'skyline', 'aerial', 'view', 'panorama',
-                'cityscape', 'landscape', 'architecture', 'building',
-                'monument', 'statue', 'bridge', 'tower'
-            ]
-            
-            keyword_count = sum(1 for keyword in location_keywords 
-                              if keyword in title_lower or keyword in desc_lower)
-            
-            # Boost score based on relevant keywords
-            score += min(0.4, keyword_count * 0.1)
             
             # Prefer landscape orientation for locations
-            aspect_ratio = image.width / image.height if image.height > 0 else 1
-            if 1.5 <= aspect_ratio <= 2.5:  # Landscape orientation
-                score += 0.1
+            if hasattr(image, 'width') and hasattr(image, 'height'):
+                aspect_ratio = image.width / image.height
+                if aspect_ratio >= 1.2:  # Landscape
+                    score += 0.2
+            
+            # Boost for location keywords
+            if hasattr(image, 'title'):
+                title_lower = image.title.lower()
+                location_keywords = ['landscape', 'city', 'building', 'place', 'view', 'scenic']
+                if any(keyword in title_lower for keyword in location_keywords):
+                    score += 0.3
             
             scores.append(min(1.0, score))
-            
+        
         return scores
-    
+
     async def _score_organization_images(self, images: List[ImageResult]) -> List[float]:
-        """Score images for organization entities."""
+        """Score organization images."""
         scores = []
         
         for image in images:
             score = 0.5  # Base score
             
-            # Analyze for organization-relevant content
-            title_lower = (image.title or "").lower()
-            desc_lower = (image.description or "").lower()
-            
-            org_keywords = [
-                'logo', 'building', 'headquarters', 'office',
-                'corporate', 'company', 'brand', 'business'
-            ]
-            
-            keyword_count = sum(1 for keyword in org_keywords 
-                              if keyword in title_lower or keyword in desc_lower)
-            
-            score += min(0.3, keyword_count * 0.1)
-            
-            # Prefer square aspect ratios for logos
-            aspect_ratio = image.width / image.height if image.height > 0 else 1
-            if 0.8 <= aspect_ratio <= 1.2:  # Square-ish
-                score += 0.1
+            # Boost for corporate keywords
+            if hasattr(image, 'title'):
+                title_lower = image.title.lower()
+                org_keywords = ['logo', 'corporate', 'company', 'business', 'office', 'building']
+                if any(keyword in title_lower for keyword in org_keywords):
+                    score += 0.3
             
             scores.append(min(1.0, score))
-            
+        
         return scores
-    
+
     def _combine_scores(self, clip_score: float, original_relevance: float,
                        quality_score: float, entity_specific: float) -> float:
-        """Combine different scores using weighted average."""
-        weights = self.scoring_weights
+        """Combine multiple scores using configured weights."""
         
-        combined = (
-            weights['clip_similarity'] * clip_score +
-            weights['original_relevance'] * original_relevance +
-            weights['quality_score'] * quality_score +
-            weights['entity_specific'] * entity_specific
+        final_score = (
+            clip_score * self.scoring_weights['clip_similarity'] +
+            original_relevance * self.scoring_weights['original_relevance'] +
+            quality_score * self.scoring_weights['quality_score'] +
+            entity_specific * self.scoring_weights['entity_specific']
         )
         
-        return min(1.0, combined)
-    
+        return min(1.0, max(0.0, final_score))
+
     def _select_diverse_images(self, curated_images: List[CuratedImage], count: int) -> List[CuratedImage]:
-        """Select diverse images to avoid visual repetition."""
+        """Select diverse set of high-quality images."""
         if len(curated_images) <= count:
-            return curated_images
+            return sorted(curated_images, key=lambda x: x.final_score, reverse=True)
         
         selected = []
-        remaining = curated_images.copy()
+        candidates = sorted(curated_images, key=lambda x: x.final_score, reverse=True)
         
-        # Always select the highest scoring image first
-        remaining.sort(key=lambda x: x.final_score, reverse=True)
-        selected.append(remaining.pop(0))
-        
-        # Select remaining images with diversity consideration
-        while len(selected) < count and remaining:
+        while len(selected) < count and candidates:
             best_candidate = None
-            best_diversity_score = -1
+            best_score = -1
             
-            for candidate in remaining:
-                # Calculate diversity score (lower = more similar)
+            for candidate in candidates:
+                # Calculate diversity score
                 diversity_score = self._calculate_diversity_score(candidate, selected)
-                
-                # Combine relevance and diversity
                 combined_score = candidate.final_score * 0.7 + diversity_score * 0.3
                 
-                if combined_score > best_diversity_score:
-                    best_diversity_score = combined_score
+                if combined_score > best_score:
+                    best_score = combined_score
                     best_candidate = candidate
             
             if best_candidate:
                 selected.append(best_candidate)
-                remaining.remove(best_candidate)
+                candidates.remove(best_candidate)
             else:
                 break
         
         return selected
-    
+
     def _calculate_diversity_score(self, candidate: CuratedImage, selected: List[CuratedImage]) -> float:
-        """Calculate how visually diverse a candidate is from selected images."""
+        """Calculate diversity score for image selection."""
         if not selected:
             return 1.0
         
-        # Simple diversity calculation based on image properties
+        # Simple diversity based on image dimensions and provider
         min_diversity = 1.0
         
         for selected_image in selected:
-            # Compare aspect ratios
+            # Aspect ratio diversity
             candidate_ratio = candidate.image.width / candidate.image.height
             selected_ratio = selected_image.image.width / selected_image.image.height
             ratio_diff = abs(candidate_ratio - selected_ratio)
             
-            # Compare titles/descriptions for content similarity
-            title_similarity = self._text_similarity(
-                candidate.image.title or "",
-                selected_image.image.title or ""
-            )
+            # Provider diversity
+            provider_penalty = 0.1 if candidate.image.source == selected_image.image.source else 0.0
             
-            # Calculate overall similarity (lower = more diverse)
-            similarity = (
-                max(0, 1 - ratio_diff) * 0.3 +
-                title_similarity * 0.7
-            )
-            
-            diversity = 1 - similarity
+            diversity = max(0.0, 1.0 - ratio_diff - provider_penalty)
             min_diversity = min(min_diversity, diversity)
         
         return min_diversity
-    
-    def _text_similarity(self, text1: str, text2: str) -> float:
-        """Calculate simple text similarity between two strings."""
-        if not text1 or not text2:
-            return 0.0
-        
-        # Simple word overlap similarity
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
-        
-        if not words1 or not words2:
-            return 0.0
-        
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
-        
-        return intersection / union if union > 0 else 0.0
-    
-    async def _download_image(self, url: str) -> bytes:
-        """Download image data from URL."""
-        try:
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            return response.content
-        except Exception as e:
-            logger.error(f"Failed to download image from {url}: {e}")
-            raise
-    
+
     def get_curation_stats(self, curated_images: List[CuratedImage]) -> Dict:
         """Get statistics about the curation process."""
         if not curated_images:
-            return {}
+            return {'total_images': 0, 'models_used': {'clip': False, 'face_detection': False}}
         
-        scores = [img.final_score for img in curated_images]
-        clip_scores = [img.clip_similarity for img in curated_images if img.clip_similarity]
+        clip_scores = [img.clip_similarity for img in curated_images if img.clip_similarity is not None]
+        relevance_scores = [img.relevance_score for img in curated_images]
         
-        return {
+        stats = {
             'total_images': len(curated_images),
-            'avg_final_score': np.mean(scores),
-            'max_final_score': max(scores),
-            'min_final_score': min(scores),
-            'avg_clip_similarity': np.mean(clip_scores) if clip_scores else 0.0,
-            'images_with_faces': sum(1 for img in curated_images 
-                                   if img.face_detection_result and 
-                                   img.face_detection_result.get('faces_detected', 0) > 0),
-            'curation_version': '1.0'
-        } 
+            'average_relevance': sum(relevance_scores) / len(relevance_scores),
+            'models_used': {
+                'clip': self.clip_available,
+                'face_detection': self.face_detection_available
+            }
+        }
+        
+        if clip_scores:
+            stats['average_clip_similarity'] = sum(clip_scores) / len(clip_scores)
+        
+        return stats 
