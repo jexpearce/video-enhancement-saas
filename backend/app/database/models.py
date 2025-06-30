@@ -7,11 +7,14 @@ Core tables for job tracking, image storage, entity management, and processing r
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, Float, Integer, Text, Boolean, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .connection import Base
+
+def generate_uuid():
+    """Generate a string UUID for cross-database compatibility."""
+    return str(uuid.uuid4())
 
 class ProcessingJob(Base):
     """
@@ -20,7 +23,7 @@ class ProcessingJob(Base):
     __tablename__ = "processing_jobs"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # User information
     user_id = Column(String(255), nullable=False, index=True)
@@ -81,10 +84,10 @@ class StoredImage(Base):
     __tablename__ = "stored_images"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # Foreign key to processing job
-    job_id = Column(UUID(as_uuid=True), ForeignKey("processing_jobs.id"), nullable=False, index=True)
+    job_id = Column(String(36), ForeignKey("processing_jobs.id"), nullable=False, index=True)
     
     # Original image information
     original_url = Column(String(500), nullable=False)
@@ -137,10 +140,10 @@ class EnrichedEntity(Base):
     __tablename__ = "enriched_entities"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # Foreign key to processing job
-    job_id = Column(UUID(as_uuid=True), ForeignKey("processing_jobs.id"), nullable=False, index=True)
+    job_id = Column(String(36), ForeignKey("processing_jobs.id"), nullable=False, index=True)
     
     # Basic entity information
     text = Column(String(255), nullable=False)
@@ -182,10 +185,10 @@ class EmphasisPoint(Base):
     __tablename__ = "emphasis_points"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # Foreign key to processing job
-    job_id = Column(UUID(as_uuid=True), ForeignKey("processing_jobs.id"), nullable=False, index=True)
+    job_id = Column(String(36), ForeignKey("processing_jobs.id"), nullable=False, index=True)
     
     # Word/phrase information
     word_text = Column(String(255), nullable=False)
@@ -206,7 +209,7 @@ class EmphasisPoint(Base):
     sentence_position = Column(Integer, nullable=True)  # Position within sentence
     
     # Associated entity (if any)
-    entity_id = Column(UUID(as_uuid=True), ForeignKey("enriched_entities.id"), nullable=True)
+    entity_id = Column(String(36), ForeignKey("enriched_entities.id"), nullable=True)
     
     # Processing metadata
     detection_confidence = Column(Float, nullable=False)
@@ -230,7 +233,7 @@ class UserPreferences(Base):
     __tablename__ = "user_preferences"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # User identification
     user_id = Column(String(255), nullable=False, unique=True, index=True)
@@ -266,7 +269,7 @@ class APIUsage(Base):
     __tablename__ = "api_usage"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=generate_uuid)
     
     # User and API information
     user_id = Column(String(255), nullable=False, index=True)

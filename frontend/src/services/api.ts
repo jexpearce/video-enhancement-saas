@@ -58,11 +58,15 @@ class ApiService {
   ): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('target_platform', preferences.target_platform);
-    formData.append('user_id', 'user_' + Date.now()); // In production, get from auth
 
     const response = await this.client.post<UploadResponse>('/videos/upload', formData, {
-      // Don't set Content-Type for FormData - axios will set it automatically with boundary
+      params: {
+        target_platform: preferences.target_platform,
+        user_id: 'user_' + Date.now() // In production, get from auth
+      },
+      headers: {
+        'Content-Type': undefined, // Let axios set this automatically for FormData
+      },
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total && onProgress) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);

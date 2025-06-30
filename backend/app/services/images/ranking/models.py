@@ -158,6 +158,7 @@ class RankingConfig:
     # Diversity settings
     diversity_penalty_strength: float = 0.3
     max_similar_images: int = 2
+    max_similar_colors: int = 2         # Max images with similar color palette
     similarity_threshold: float = 0.8
     
     # Quality thresholds

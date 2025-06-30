@@ -11,7 +11,7 @@ import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ...models.schemas import AudioSegment, TranscriptionResult, WordInfo
-from ..config import settings
+from ...config import settings
 
 logger = logging.getLogger(__name__)
 

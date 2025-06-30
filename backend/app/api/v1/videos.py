@@ -35,10 +35,32 @@ router = APIRouter()
 # Maximum file size (100MB)
 MAX_FILE_SIZE = 100 * 1024 * 1024
 
-# Allowed video formats
+# Allowed video formats - comprehensive list to handle browser variations
 ALLOWED_VIDEO_FORMATS = {
-    "video/mp4", "video/quicktime", "video/x-msvideo", 
-    "video/x-ms-wmv", "video/webm"
+    # MP4 variations
+    "video/mp4", "video/mpeg4", "video/mp4v-es",
+    # MOV/QuickTime variations  
+    "video/quicktime", "video/x-quicktime",
+    # AVI variations
+    "video/x-msvideo", "video/avi", "video/msvideo",
+    # WMV variations
+    "video/x-ms-wmv", "video/x-ms-asf",
+    # WebM
+    "video/webm",
+    # Additional common formats
+    "video/3gpp", "video/x-flv", "video/x-m4v"
+}
+
+# File extension to MIME type mapping for fallback validation
+EXTENSION_TO_MIME = {
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime', 
+    '.avi': 'video/x-msvideo',
+    '.wmv': 'video/x-ms-wmv',
+    '.webm': 'video/webm',
+    '.3gp': 'video/3gpp',
+    '.flv': 'video/x-flv',
+    '.m4v': 'video/x-m4v'
 }
 
 @router.post("/videos/upload", response_model=ProcessVideoResponse)
@@ -65,13 +87,26 @@ async def upload_video(
     logger.info(f"Upload attempt - filename: {file.filename}, content_type: {file.content_type}, user_id: {user_id}, target_platform: {target_platform}")
     
     try:
-        # Validate file
-        if not file.content_type or file.content_type not in ALLOWED_VIDEO_FORMATS:
-            logger.warning(f"Invalid content type: {file.content_type}")
+        # Validate file - check both MIME type and file extension
+        is_valid_mime = file.content_type and file.content_type in ALLOWED_VIDEO_FORMATS
+        is_valid_extension = False
+        
+        if file.filename:
+            file_ext = os.path.splitext(file.filename.lower())[1]
+            is_valid_extension = file_ext in EXTENSION_TO_MIME
+        
+        if not is_valid_mime and not is_valid_extension:
+            logger.warning(f"Invalid file - content_type: {file.content_type}, filename: {file.filename}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file format. Allowed: {', '.join(ALLOWED_VIDEO_FORMATS)}"
+                detail=f"Unsupported file format. Please upload MP4, MOV, AVI, WMV, or WebM videos."
             )
+        
+        # If MIME type is missing or incorrect but extension is valid, use extension-based MIME type
+        if not is_valid_mime and is_valid_extension and file.filename:
+            file_ext = os.path.splitext(file.filename.lower())[1]
+            logger.info(f"Using extension-based MIME type for {file.filename}: {EXTENSION_TO_MIME[file_ext]}")
+            # Note: We'll use the corrected MIME type for storage later
         
         # Read file content for validation and hashing
         file_content = await file.read()
@@ -110,7 +145,13 @@ async def upload_video(
         temp_dir = "/tmp/video_enhancement"
         os.makedirs(temp_dir, exist_ok=True)
         
-        temp_file_path = f"{temp_dir}/{file_hash}.{file.filename.split('.')[-1]}"
+        # Handle filename extension safely
+        if file.filename and '.' in file.filename:
+            file_extension = file.filename.split('.')[-1]
+        else:
+            file_extension = 'mp4'  # Default extension
+        
+        temp_file_path = f"{temp_dir}/{file_hash}.{file_extension}"
         with open(temp_file_path, "wb") as temp_file:
             temp_file.write(file_content)
         

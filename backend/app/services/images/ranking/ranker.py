@@ -131,7 +131,15 @@ class ImageRankingEngine:
             
             # 5. Apply diversity penalty and sort
             ranked_images = self._apply_diversity_penalty(ranked_images)
-            ranked_images.sort(key=lambda x: x.final_score, reverse=True)
+            
+            # Safe sort with type conversion
+            def safe_final_score_key(x: RankedImage) -> float:
+                try:
+                    return float(x.final_score) if x.final_score is not None else 0.0
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            ranked_images.sort(key=safe_final_score_key, reverse=True)
             
             # 6. Create result with metrics
             processing_time = (time.time() - start_time) * 1000

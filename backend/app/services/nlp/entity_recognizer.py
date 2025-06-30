@@ -213,8 +213,16 @@ class EntityRecognizer:
                 enhanced_entities.append(enhanced)
             
             # Sort by importance (image potential + context score)
+            # Create numeric mapping for ImagePotential to enable sorting
+            potential_scores = {
+                ImagePotential.EXCELLENT: 4,
+                ImagePotential.GOOD: 3,
+                ImagePotential.MODERATE: 2,
+                ImagePotential.POOR: 1
+            }
+            
             enhanced_entities.sort(
-                key=lambda e: (e.image_potential.value, e.context_score, e.confidence),
+                key=lambda e: (potential_scores[e.image_potential], e.context_score, e.confidence),
                 reverse=True
             )
             

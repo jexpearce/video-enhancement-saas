@@ -4,11 +4,12 @@ import os
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql://postgres:password@localhost:5432/video_enhancement"
+    database_url: str = "sqlite:///video_enhancement.db"
     redis_url: str = "redis://localhost:6379"
     
     # API Keys
     openai_api_key: Optional[str] = None
+    unsplash_api_key: Optional[str] = None
     
     # AWS (for later phases)
     aws_access_key_id: Optional[str] = None

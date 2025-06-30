@@ -34,7 +34,13 @@ class ImageSelector:
         ]
         
         # Sort by score
-        candidates.sort(key=lambda x: x.final_score, reverse=True)
+        def safe_final_score_key(x: RankedImage) -> float:
+            try:
+                return float(x.final_score) if x.final_score is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        candidates.sort(key=safe_final_score_key, reverse=True)
         
         # Apply diversity selection
         selected = []

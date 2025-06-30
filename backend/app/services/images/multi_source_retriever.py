@@ -258,7 +258,13 @@ class MultiSourceImageRetriever:
         unique_images = []
         
         # Sort by quality score first (keep highest quality duplicates)
-        images.sort(key=lambda x: x.quality_score, reverse=True)
+        def safe_quality_score_key(x: ImageResult) -> float:
+            try:
+                return float(x.quality_score) if x.quality_score is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        images.sort(key=safe_quality_score_key, reverse=True)
         
         for image in images:
             # Check URL deduplication
@@ -323,7 +329,14 @@ class MultiSourceImageRetriever:
             )
             
         # Sort by final score
-        images.sort(key=lambda x: x.metadata['final_score'], reverse=True)
+        def safe_final_score_key(x: ImageResult) -> float:
+            try:
+                final_score = x.metadata.get('final_score', 0.0)
+                return float(final_score) if final_score is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        images.sort(key=safe_final_score_key, reverse=True)
         
         return images[:count]
         

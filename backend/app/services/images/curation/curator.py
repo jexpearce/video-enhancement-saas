@@ -56,19 +56,45 @@ class CuratedImage:
     
     @property
     def final_score(self) -> float:
-        """Calculate final weighted score for ranking."""
-        base_score = self.relevance_score
-        
-        # Add quality bonus
-        quality_bonus = self.curation_metadata.get('quality_bonus', 0.0)
-        
-        # Add face detection bonus for person entities
-        face_bonus = self.curation_metadata.get('face_bonus', 0.0)
-        
-        # Add CLIP similarity boost
-        clip_bonus = self.curation_metadata.get('clip_bonus', 0.0)
-        
-        return min(1.0, base_score + quality_bonus + face_bonus + clip_bonus)
+        """Calculate final weighted score for ranking with ultra-robust type safety."""
+        try:
+            # Ensure base_score is a float with multiple fallbacks
+            if self.relevance_score is not None:
+                try:
+                    base_score = float(self.relevance_score)
+                except (ValueError, TypeError):
+                    base_score = 0.0
+            else:
+                base_score = 0.0
+            
+            # Add quality bonus - ensure it's a float with fallbacks
+            quality_bonus_raw = self.curation_metadata.get('quality_bonus', 0.0)
+            try:
+                quality_bonus = float(quality_bonus_raw) if quality_bonus_raw is not None else 0.0
+            except (ValueError, TypeError):
+                quality_bonus = 0.0
+            
+            # Add face detection bonus for person entities - ensure it's a float with fallbacks
+            face_bonus_raw = self.curation_metadata.get('face_bonus', 0.0)
+            try:
+                face_bonus = float(face_bonus_raw) if face_bonus_raw is not None else 0.0
+            except (ValueError, TypeError):
+                face_bonus = 0.0
+            
+            # Add CLIP similarity boost - ensure it's a float with fallbacks
+            clip_bonus_raw = self.curation_metadata.get('clip_bonus', 0.0)
+            try:
+                clip_bonus = float(clip_bonus_raw) if clip_bonus_raw is not None else 0.0
+            except (ValueError, TypeError):
+                clip_bonus = 0.0
+            
+            result = base_score + quality_bonus + face_bonus + clip_bonus
+            return min(1.0, max(0.0, result))  # Clamp between 0 and 1
+            
+        except Exception as e:
+            # Ultimate fallback - return a valid float
+            logger.warning(f"Error calculating final_score: {e}, returning default 0.5")
+            return 0.5
 
 @dataclass
 class WordContext:
@@ -808,25 +834,38 @@ class ImageCurator:
         return min(1.0, max(0.0, final_score))
 
     def _select_diverse_images(self, curated_images: List[CuratedImage], count: int) -> List[CuratedImage]:
-        """Select diverse set of high-quality images."""
+        """Select diverse set of high-quality images with safe sorting."""
         if len(curated_images) <= count:
-            return sorted(curated_images, key=lambda x: x.final_score, reverse=True)
+            return self._safe_sort_by_final_score(curated_images)
         
         selected = []
-        candidates = sorted(curated_images, key=lambda x: x.final_score, reverse=True)
+        candidates = self._safe_sort_by_final_score(curated_images)
         
         while len(selected) < count and candidates:
             best_candidate = None
             best_score = -1
             
             for candidate in candidates:
-                # Calculate diversity score
-                diversity_score = self._calculate_diversity_score(candidate, selected)
-                combined_score = candidate.final_score * 0.7 + diversity_score * 0.3
-                
-                if combined_score > best_score:
-                    best_score = combined_score
-                    best_candidate = candidate
+                try:
+                    # Calculate diversity score
+                    diversity_score = self._calculate_diversity_score(candidate, selected)
+                    
+                    # Get final score safely
+                    final_score = candidate.final_score
+                    
+                    # Ensure both are floats
+                    diversity_score = float(diversity_score) if diversity_score is not None else 0.0
+                    final_score = float(final_score) if final_score is not None else 0.0
+                    
+                    combined_score = final_score * 0.7 + diversity_score * 0.3
+                    
+                    if combined_score > best_score:
+                        best_score = combined_score
+                        best_candidate = candidate
+                        
+                except Exception as e:
+                    logger.warning(f"Error calculating combined score for candidate: {e}")
+                    continue
             
             if best_candidate:
                 selected.append(best_candidate)
@@ -835,6 +874,22 @@ class ImageCurator:
                 break
         
         return selected
+    
+    def _safe_sort_by_final_score(self, curated_images: List[CuratedImage]) -> List[CuratedImage]:
+        """Safely sort images by final_score with error handling."""
+        try:
+            def safe_score_key(x: CuratedImage) -> float:
+                try:
+                    score = x.final_score
+                    return float(score) if score is not None else 0.0
+                except Exception as e:
+                    logger.warning(f"Error getting final_score for image: {e}")
+                    return 0.0
+            
+            return sorted(curated_images, key=safe_score_key, reverse=True)
+        except Exception as e:
+            logger.error(f"Error sorting images by final_score: {e}")
+            return curated_images  # Return unsorted if sorting fails
 
     def _calculate_diversity_score(self, candidate: CuratedImage, selected: List[CuratedImage]) -> float:
         """Calculate diversity score for image selection."""

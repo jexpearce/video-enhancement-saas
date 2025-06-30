@@ -9,23 +9,30 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 import logging
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-# Database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://postgres:password@localhost:5432/video_enhancement"
-)
+# Database URL from settings
+DATABASE_URL = settings.database_url
 
 # Create engine with connection pooling
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=QueuePool,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,  # Verify connections before use
-    echo=os.getenv("DATABASE_ECHO", "false").lower() == "true"
-)
+# Use different pooling config for SQLite vs PostgreSQL
+if DATABASE_URL.startswith('sqlite'):
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        echo=settings.debug
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        poolclass=QueuePool,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,  # Verify connections before use
+        echo=settings.debug
+    )
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

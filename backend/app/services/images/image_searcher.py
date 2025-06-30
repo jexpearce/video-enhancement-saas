@@ -19,16 +19,16 @@ import asyncio
 import logging
 import time
 import os
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
-import numpy as np
+from typing import List, Dict, Optional, Set, Any
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 # Import real providers
 from .providers.unsplash import UnsplashProvider
 from .providers.base import ImageResult as ProviderImageResult, SearchRequest as ProviderSearchRequest, ImageLicense
 from .providers.base import RateLimitError, ImageUnavailableError
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +114,8 @@ class ImageSearcher:
         """Initialize real image providers with API keys."""
         
         # Initialize Unsplash provider
-        unsplash_api_key = os.getenv('UNSPLASH_API_KEY')
-        if unsplash_api_key:
+        unsplash_api_key = settings.unsplash_api_key
+        if unsplash_api_key and unsplash_api_key.strip() and unsplash_api_key != 'YOUR_REAL_UNSPLASH_ACCESS_KEY_HERE':
             try:
                 self.unsplash_provider = UnsplashProvider(unsplash_api_key)
                 logger.info("Unsplash provider initialized successfully")
@@ -123,7 +123,7 @@ class ImageSearcher:
                 logger.error(f"Failed to initialize Unsplash provider: {e}")
                 self.unsplash_provider = None
         else:
-            logger.warning("UNSPLASH_API_KEY not found, Unsplash provider disabled")
+            logger.error("UNSPLASH_API_KEY not found or invalid! Please add a real API key to .env file")
             self.unsplash_provider = None
             
         # TODO: Initialize other providers when implemented
@@ -136,7 +136,11 @@ class ImageSearcher:
             self.available_providers.append('unsplash')
             
         if not self.available_providers:
-            logger.warning("No image providers available! Add API keys to environment.")
+            raise RuntimeError(
+                "NO REAL IMAGE PROVIDERS AVAILABLE! "
+                "Add a real UNSPLASH_API_KEY to backend/.env file. "
+                "Get one from https://unsplash.com/developers"
+            )
 
     def _init_entity_search_configs(self):
         """Initialize entity-specific search configurations."""
@@ -204,6 +208,14 @@ class ImageSearcher:
             List of ImageResult objects, ranked by quality
         """
         
+        # Fail fast if no real providers available
+        if not self.available_providers:
+            raise RuntimeError(
+                "No real image providers available! "
+                "Add a real UNSPLASH_API_KEY to backend/.env file. "
+                "Get one from https://unsplash.com/developers"
+            )
+        
         try:
             start_time = time.time()
             self.search_stats['total_searches'] += 1
@@ -229,6 +241,13 @@ class ImageSearcher:
             # if 'pexels' in self.available_providers:
             #     pexels_results = await self._search_pexels(optimized_query, search_request)
             #     all_results.extend(pexels_results)
+            
+            # Ensure we have real results
+            if not all_results:
+                raise RuntimeError(
+                    f"No images found for query: {search_request.query}. "
+                    f"Check your API key and try again."
+                )
             
             # Score and rank all results
             ranked_results = self._score_and_rank_results(all_results, search_request)
@@ -257,7 +276,7 @@ class ImageSearcher:
             
         except Exception as e:
             logger.error(f"Image search failed: {e}")
-            return []
+            raise  # Re-raise to stop processing rather than continue with broken data
 
     def _optimize_search_query(self, query: str, entity_type: str) -> str:
         """Optimize search query based on entity type."""
@@ -276,12 +295,13 @@ class ImageSearcher:
         """Search Unsplash API with real provider."""
         
         if not self.unsplash_provider:
-            logger.warning("Unsplash provider not available")
-            return []
+            raise RuntimeError(
+                "Unsplash provider not available! "
+                "Add a real UNSPLASH_API_KEY to backend/.env file."
+            )
             
         if not self._check_rate_limit('unsplash'):
-            logger.warning("Unsplash rate limit exceeded")
-            return []
+            raise RuntimeError("Unsplash rate limit exceeded. Please wait before retrying.")
         
         try:
             # Use real Unsplash provider
@@ -295,15 +315,15 @@ class ImageSearcher:
                     results.append(result)
             
             self._update_rate_limit('unsplash')
-            logger.info(f"Unsplash search returned {len(results)} results")
+            logger.info(f"Unsplash search returned {len(results)} real results")
             return results
             
         except RateLimitError as e:
-            logger.warning(f"Unsplash rate limit hit: {e}")
-            return []
+            logger.error(f"Unsplash rate limit hit: {e}")
+            raise RuntimeError(f"Unsplash rate limit exceeded: {e}")
         except Exception as e:
             logger.error(f"Unsplash search error: {e}")
-            return []
+            raise RuntimeError(f"Unsplash search failed: {e}")
 
     def _convert_provider_result(self, provider_result: ProviderImageResult, request: SearchRequest) -> Optional[ImageResult]:
         """Convert provider ImageResult to our ImageResult format."""
@@ -335,39 +355,66 @@ class ImageSearcher:
             return None
 
     def _score_and_rank_results(self, results: List[ImageResult], request: SearchRequest) -> List[ImageResult]:
-        """Score and rank image results by quality."""
+        """Score and rank image results by quality with safe type conversion."""
         
         entity_config = self.entity_search_configs.get(request.entity_type, {})
         
         for result in results:
+            # Ensure all scores are floats with safe conversion
+            try:
+                result.quality_score = float(result.quality_score) if result.quality_score is not None else 0.0
+            except (ValueError, TypeError):
+                result.quality_score = 0.0
+                
+            try:
+                result.relevance_score = float(result.relevance_score) if result.relevance_score is not None else 0.0
+            except (ValueError, TypeError):
+                result.relevance_score = 0.0
+                
+            try:
+                result.aesthetic_score = float(result.aesthetic_score) if result.aesthetic_score is not None else 0.0
+            except (ValueError, TypeError):
+                result.aesthetic_score = 0.0
+            
             # Resolution score
             resolution_score = self._calculate_resolution_score(
                 result.width, result.height, entity_config
             )
-            result.resolution_score = resolution_score
+            result.resolution_score = float(resolution_score)
             
             # Relevance score (use provider's score if available, otherwise calculate)
             if result.relevance_score == 0.0:
                 relevance_score = self._calculate_relevance_score(
                     result.title, result.search_query, request.entity_type
                 )
-                result.relevance_score = relevance_score
+                result.relevance_score = float(relevance_score)
             
             # Aesthetic score (use provider's score if available, otherwise mock)
             if result.aesthetic_score == 0.0:
                 aesthetic_score = self._calculate_aesthetic_score(result, entity_config)
-                result.aesthetic_score = aesthetic_score
+                result.aesthetic_score = float(aesthetic_score)
             
             # Overall quality score (combine all factors)
             if result.quality_score == 0.0:
-                result.quality_score = (
-                    resolution_score * self.quality_weights['resolution'] +
+                result.quality_score = float(
+                    result.resolution_score * self.quality_weights['resolution'] +
                     result.relevance_score * self.quality_weights['relevance'] +
                     result.aesthetic_score * self.quality_weights['aesthetic']
                 )
         
-        # Sort by quality score
-        results.sort(key=lambda r: r.quality_score, reverse=True)
+        # Safe sort by quality score with error handling
+        try:
+            def safe_quality_key(r: ImageResult) -> float:
+                try:
+                    return float(r.quality_score) if r.quality_score is not None else 0.0
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            results.sort(key=safe_quality_key, reverse=True)
+        except Exception as e:
+            logger.error(f"Error sorting results by quality_score: {e}")
+            # Return unsorted results if sorting fails
+        
         return results
 
     def _calculate_resolution_score(self, width: int, height: int, entity_config: Dict) -> float:

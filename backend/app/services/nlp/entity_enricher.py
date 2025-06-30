@@ -209,14 +209,25 @@ class EntityEnricher:
                 enriched_entities.append(enriched)
         
         # Sort by overall enrichment quality
-        enriched_entities.sort(
-            key=lambda e: (
-                e.image_quality_score,
-                e.semantic_info.popularity_score,
-                e.confidence
-            ),
-            reverse=True
-        )
+        def safe_enrichment_sort_key(e: EnrichedEntity) -> tuple:
+            try:
+                image_quality = float(e.image_quality_score) if e.image_quality_score is not None else 0.0
+            except (ValueError, TypeError):
+                image_quality = 0.0
+                
+            try:
+                popularity = float(e.semantic_info.popularity_score) if e.semantic_info.popularity_score is not None else 0.0
+            except (ValueError, TypeError):
+                popularity = 0.0
+                
+            try:
+                confidence = float(e.confidence) if e.confidence is not None else 0.0
+            except (ValueError, TypeError):
+                confidence = 0.0
+                
+            return (image_quality, popularity, confidence)
+        
+        enriched_entities.sort(key=safe_enrichment_sort_key, reverse=True)
         
         return enriched_entities
     
