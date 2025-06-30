@@ -19,7 +19,7 @@ from celery import current_task
 from sqlalchemy.orm import Session
 
 from ..celery_app import celery_app, get_db_session
-from ..database.models import ProcessingJob
+from ..database.models import ProcessingJob, JobStatus
 from ..services.audio.emphasis_detector import EmphasisDetector
 from ..services.nlp.entity_extractor import EntityExtractor
 from ..services.nlp.entity_enricher import EntityEnricher
@@ -36,7 +36,7 @@ class VideoProcessingError(Exception):
     pass
 
 @celery_app.task(bind=True, name='app.tasks.video_processing.process_video')
-def process_video(self, job_id: str, input_file_path: str, user_preferences: Optional[Dict] = None) -> Dict[str, Any]:
+async def process_video(self, job_id: str, input_file_path: str, user_preferences: Optional[Dict] = None) -> Dict[str, Any]:
     """
     Main video processing task - orchestrates the entire enhancement pipeline.
     
@@ -113,7 +113,7 @@ def process_video(self, job_id: str, input_file_path: str, user_preferences: Opt
         
         # Stage 5: Video Composition
         logger.info(f"Job {job_id}: Composing enhanced video")
-        composition_results = _compose_video(
+        composition_results = await _compose_video(
             input_file_path,
             audio_results,
             entity_results,
@@ -335,7 +335,7 @@ def _select_style(user_preferences: Dict, entity_results: Dict, job_id: str) -> 
             }
         }
 
-def _compose_video(
+async def _compose_video(
     input_file_path: str,
     audio_results: Dict,
     entity_results: Dict,
@@ -344,9 +344,62 @@ def _compose_video(
     temp_dir: str,
     job_id: str
 ) -> Dict[str, Any]:
-    """Compose the final enhanced video."""
+    """Compose the final enhanced video using the VideoComposer system."""
     try:
-        video_composer = VideoComposer()
+        # Initialize VideoComposer with production settings
+        from ..services.composition.models import CompositionConfig
+        
+        config = CompositionConfig(
+            output_resolution=(1080, 1920),  # 9:16 for TikTok/Instagram
+            output_fps=30,
+            output_bitrate="5M",
+            preset="fast",  # Balance quality and speed
+            gpu_acceleration=True
+        )
+        
+        video_composer = VideoComposer(config)
+        
+        # Get animation timeline if available from style results
+        animation_timeline = None
+        if 'animation_timeline' in style_results:
+            animation_timeline = style_results['animation_timeline']
+        else:
+            # Generate animation timeline using existing animation engine
+            try:
+                from ..services.animation.animation_engine import AnimationEngine
+                animation_engine = AnimationEngine()
+                
+                # Create ranked images format for animation engine
+                curated_images = image_results.get('curated_images', [])
+                ranked_images = [
+                    {
+                        'id': img.get('id', f"img_{i}"),
+                        'url': img.get('url', ''),
+                        'entity_name': img.get('entity_name', ''),
+                        'relevance_score': img.get('relevance_score', 0.5),
+                        'quality_score': img.get('quality_score', 0.5)
+                    }
+                    for i, img in enumerate(curated_images)
+                ]
+                
+                # Generate timeline
+                video_duration = audio_results.get('audio_features', {}).get('duration', 30.0)
+                audio_beats = audio_results.get('audio_features', {}).get('beats', [])
+                
+                timeline_result = await animation_engine.create_image_animation_timeline(
+                    emphasis_points=audio_results.get('emphasis_points', []),
+                    ranked_images=ranked_images,
+                    style=style_results.get('selected_style', {}),
+                    video_duration=video_duration,
+                    audio_beats=audio_beats
+                )
+                
+                animation_timeline = timeline_result
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate animation timeline for job {job_id}: {e}")
+                # Continue with empty timeline
+                animation_timeline = {'events': [], 'duration': 30.0}
         
         # Prepare composition data
         composition_data = {
@@ -354,28 +407,39 @@ def _compose_video(
             'emphasis_points': audio_results.get('emphasis_points', []),
             'entities': entity_results.get('entities', []),
             'curated_images': image_results.get('curated_images', []),
-            'selected_style': style_results.get('selected_style'),
-            'audio_features': audio_results.get('audio_features', {})
+            'selected_style': style_results.get('selected_style', {}),
+            'audio_features': audio_results.get('audio_features', {}),
+            'animation_timeline': animation_timeline
         }
         
         # Generate output file path
         output_file = os.path.join(temp_dir, f"{job_id}_enhanced.mp4")
         
-        # Compose video
-        composition_result = video_composer.compose_video(composition_data, output_file)
+        logger.info(f"Job {job_id}: Starting video composition with {len(composition_data['curated_images'])} images")
+        
+        # Compose video (this is the async call)
+        composition_result = await video_composer.compose_video(composition_data, output_file)
+        
+        if not composition_result.success:
+            raise VideoProcessingError(f"Video composition failed: {composition_result.error_message}")
+        
+        logger.info(f"Job {job_id}: Video composition completed successfully in {composition_result.processing_time:.2f}s")
         
         return {
             'output_file_path': output_file,
-            'composition_metadata': composition_result,
+            'composition_metadata': composition_result.to_dict(),
             'processing_stats': {
                 'total_enhancements': len(audio_results.get('emphasis_points', [])),
                 'images_used': len(image_results.get('curated_images', [])),
-                'style_applied': style_results.get('selected_style', {}).get('name', 'default')
+                'style_applied': style_results.get('selected_style', {}).get('template_name', 'default'),
+                'processing_time': composition_result.processing_time,
+                'overlays_applied': composition_result.total_overlays_applied,
+                'effects_applied': composition_result.total_effects_applied
             }
         }
         
     except Exception as e:
-        logger.error(f"Video composition failed for job {job_id}: {e}")
+        logger.error(f"Video composition failed for job {job_id}: {e}", exc_info=True)
         raise VideoProcessingError(f"Video composition failed: {e}")
 
 def _finalize_results(composition_results: Dict, job_id: str) -> Dict[str, Any]:
