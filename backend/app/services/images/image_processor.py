@@ -57,6 +57,20 @@ class ImageProcessor:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.memory_cache = {}
         
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        # Cleanup operations if needed
+        # Clear memory cache periodically to prevent memory leaks
+        if len(self.memory_cache) > 100:
+            # Keep only the 50 most recent entries
+            cache_items = list(self.memory_cache.items())
+            self.memory_cache = dict(cache_items[-50:])
+            logger.info("Cleaned up memory cache to prevent memory leaks")
+        
     async def process_image(self, image_url: str, options: Optional[ProcessingOptions] = None) -> Optional[ProcessedImage]:
         """Process an image for video overlay."""
         try:
@@ -65,22 +79,51 @@ class ImageProcessor:
             if options is None:
                 options = ProcessingOptions()
             
-            # Mock processing for now
-            cache_key = f"processed_{hash(image_url)}_{options.overlay_width}_{options.overlay_height}"
+            # Generate cache key
+            cache_key = self._generate_cache_key(image_url, options)
             
-            # Simulate processing time
-            await asyncio.sleep(0.1)
+            # Check cache first
+            cached_result = self._check_disk_cache(cache_key)
+            if cached_result:
+                return cached_result
+            
+            # Download image
+            image_data = await self._download_image(image_url)
+            if not image_data:
+                logger.error(f"Failed to download image: {image_url}")
+                return None
+            
+            # Load and validate image
+            try:
+                image = Image.open(io.BytesIO(image_data))
+                if not self._validate_image_quality(image):
+                    return None
+            except Exception as e:
+                logger.error(f"Failed to load image {image_url}: {e}")
+                return None
+            
+            # Process image for overlay
+            processed_image = self._process_image_for_overlay(image, options)
+            
+            # Save processed image
+            processed_path = self._save_processed_image(processed_image, cache_key, options.format)
+            
+            # Calculate file size
+            file_size = processed_path.stat().st_size if processed_path.exists() else 0
             
             result = ProcessedImage(
                 original_url=image_url,
-                processed_path=f"{self.cache_dir}/{cache_key}.png",
-                width=options.overlay_width,
-                height=options.overlay_height, 
-                file_size=50000,  # Mock size
+                processed_path=str(processed_path),
+                width=processed_image.width,
+                height=processed_image.height, 
+                file_size=file_size,
                 processing_time=(datetime.now() - start_time).total_seconds(),
                 cache_key=cache_key,
                 created_at=datetime.now()
             )
+            
+            # Cache result
+            self._add_to_memory_cache(cache_key, result)
             
             return result
             
@@ -236,7 +279,7 @@ class ImageProcessor:
         draw.rounded_rectangle([(0, 0), image.size], radius, fill=255)
         
         # Apply mask
-        output = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        output = Image.new('RGBA', image.size, 0)
         output.paste(image, (0, 0))
         output.putalpha(mask)
         
@@ -247,7 +290,7 @@ class ImageProcessor:
         
         # Create shadow
         shadow_size = (image.width + offset[0] + blur*2, image.height + offset[1] + blur*2)
-        shadow = Image.new('RGBA', shadow_size, (0, 0, 0, 0))
+        shadow = Image.new('RGBA', shadow_size, 0)
         
         # Draw shadow
         shadow_draw = ImageDraw.Draw(shadow)
@@ -258,7 +301,7 @@ class ImageProcessor:
         shadow = shadow.filter(ImageFilter.GaussianBlur(blur))
         
         # Composite image on shadow
-        result = Image.new('RGBA', shadow_size, (0, 0, 0, 0))
+        result = Image.new('RGBA', shadow_size, 0)
         result.paste(shadow, (0, 0))
         result.paste(image, (blur - offset[0], blur - offset[1]), image if image.mode == 'RGBA' else None)
         
@@ -278,7 +321,10 @@ class ImageProcessor:
         
         # Add watermark text
         watermark_text = "VideoAI"
-        text_width, text_height = draw.textsize(watermark_text, font=font)
+        # Use modern PIL method for text dimensions
+        bbox = draw.textbbox((0, 0), watermark_text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
         
         # Position in bottom right
         x = image.width - text_width - 10

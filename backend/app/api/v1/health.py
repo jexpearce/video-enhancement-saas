@@ -10,8 +10,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-# Import database check
+# Import database check and settings
 from app.database.connection import check_database_connection
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +32,11 @@ async def health_check():
         # Check database connection
         db_healthy = check_database_connection()
         
-        # Check required environment variables
-        required_env_vars = [
-            "DATABASE_URL"
-        ]
-        
-        missing_env_vars = []
-        for env_var in required_env_vars:
-            if not os.getenv(env_var):
-                missing_env_vars.append(env_var)
+        # Check required settings (now properly loaded from .env)
+        settings_healthy = bool(settings.database_url)
         
         # Determine overall health
-        healthy = db_healthy and len(missing_env_vars) == 0
+        healthy = db_healthy and settings_healthy
         
         status_code = 200 if healthy else 503
         
@@ -52,12 +46,9 @@ async def health_check():
             "version": "1.0.0",
             "checks": {
                 "database": "healthy" if db_healthy else "unhealthy",
-                "environment": "healthy" if len(missing_env_vars) == 0 else "unhealthy"
+                "settings": "healthy" if settings_healthy else "unhealthy"
             }
         }
-        
-        if missing_env_vars:
-            response["missing_environment_variables"] = missing_env_vars
         
         return JSONResponse(content=response, status_code=status_code)
         
@@ -85,18 +76,18 @@ async def detailed_health_check():
         # Database check
         db_healthy = check_database_connection()
         
-        # Environment variables check
+        # Settings check (loaded from .env file)
         env_vars = {
-            "DATABASE_URL": bool(os.getenv("DATABASE_URL")),
-            "UNSPLASH_API_KEY": bool(os.getenv("UNSPLASH_API_KEY")),
-            "REDIS_URL": bool(os.getenv("REDIS_URL")),
-            "AWS_ACCESS_KEY_ID": bool(os.getenv("AWS_ACCESS_KEY_ID")),
-            "AWS_SECRET_ACCESS_KEY": bool(os.getenv("AWS_SECRET_ACCESS_KEY"))
+            "DATABASE_URL": bool(settings.database_url),
+            "UNSPLASH_API_KEY": bool(settings.unsplash_api_key),
+            "REDIS_URL": bool(settings.redis_url),
+            "AWS_ACCESS_KEY_ID": bool(settings.aws_access_key_id),
+            "AWS_SECRET_ACCESS_KEY": bool(settings.aws_secret_access_key)
         }
         
         # API providers status
         providers = {
-            "unsplash": bool(os.getenv("UNSPLASH_API_KEY")),
+            "unsplash": bool(settings.unsplash_api_key),
             "database": db_healthy
         }
         

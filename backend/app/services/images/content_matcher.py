@@ -60,8 +60,14 @@ class ContentMatcher:
                     
                     matches.append(match)
         
-        # Sort by score and return top matches
-        matches.sort(key=lambda m: m.match_score, reverse=True)
+        # Sort by score and return top matches with safe type conversion
+        def safe_match_score_key(m: ImageMatch) -> float:
+            try:
+                return float(m.match_score) if m.match_score is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        matches.sort(key=safe_match_score_key, reverse=True)
         return matches[:5]  # Return top 5 matches
     
     def _is_relevant(self, image_result: object, segment: VideoSegment) -> bool:

@@ -252,11 +252,16 @@ class ImageSearcher:
             # Score and rank all results
             ranked_results = self._score_and_rank_results(all_results, search_request)
             
-            # Filter by quality threshold
-            quality_results = [
-                result for result in ranked_results 
-                if result.quality_score >= search_request.quality_threshold
-            ]
+            # Filter by quality threshold with safe type conversion
+            quality_results = []
+            for result in ranked_results:
+                try:
+                    quality_score = float(result.quality_score) if result.quality_score is not None else 0.0
+                    if quality_score >= search_request.quality_threshold:
+                        quality_results.append(result)
+                except (ValueError, TypeError):
+                    # Skip results with invalid quality scores
+                    continue
             
             # Update statistics
             search_time = time.time() - start_time

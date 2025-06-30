@@ -179,11 +179,16 @@ class UnsplashProvider(ImageProvider):
                     logger.warning(f"Failed to process Unsplash photo: {e}")
                     continue
                     
-            # Sort by combined relevance and quality score
-            images.sort(
-                key=lambda x: (x.relevance_score * 0.6 + x.quality_score * 0.4),
-                reverse=True
-            )
+            # Sort by combined relevance and quality score with safe type conversion
+            def safe_combined_score(x: ImageResult) -> float:
+                try:
+                    relevance = float(x.relevance_score) if x.relevance_score is not None else 0.0
+                    quality = float(x.quality_score) if x.quality_score is not None else 0.0
+                    return relevance * 0.6 + quality * 0.4
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            images.sort(key=safe_combined_score, reverse=True)
             
             return images[:count]
             
@@ -381,8 +386,12 @@ class UnsplashProvider(ImageProvider):
         if image.width < 800 or image.height < 600:
             return False
             
-        # Minimum quality score
-        if image.quality_score < 0.3:
+        # Minimum quality score with safe type conversion
+        try:
+            quality_score = float(image.quality_score) if image.quality_score is not None else 0.0
+            if quality_score < 0.3:
+                return False
+        except (ValueError, TypeError):
             return False
             
         # Must have description or tags

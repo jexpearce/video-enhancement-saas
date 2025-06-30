@@ -210,9 +210,15 @@ class ProcessingPipeline:
             step_start = time.time() 
             logger.info("Step 5: Image search")
             
-            image_results = await self._search_images(enriched_entities)
-            result.image_results = image_results
-            result.image_search_time = time.time() - step_start
+            try:
+                image_results = await self._search_images(enriched_entities)
+                result.image_results = image_results
+                result.image_search_time = time.time() - step_start
+            except Exception as e:
+                import traceback
+                logger.error(f"Detailed error in Step 5: {e}")
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+                raise
             
             # Step 6: Process images for overlay
             step_start = time.time()
@@ -331,9 +337,15 @@ class ProcessingPipeline:
         image_results = []
         
         for entity in enriched_entities[:self.config.max_entities_per_segment]:
-            # Skip low-quality entities
-            if hasattr(entity, 'image_potential') and entity.image_potential < self.config.entity_confidence_threshold:
-                continue
+            # Skip low-quality entities with safe type conversion
+            if hasattr(entity, 'image_potential'):
+                try:
+                    image_potential = float(entity.image_potential) if entity.image_potential is not None else 0.0
+                    if image_potential < self.config.entity_confidence_threshold:
+                        continue
+                except (ValueError, TypeError):
+                    # Skip entities with invalid image_potential values
+                    continue
 
             # Search for images
             entity_images = await self.image_searcher.search_for_entity(entity)
@@ -492,23 +504,50 @@ class ProcessingPipeline:
     def _update_processing_stats(self, result: ProcessingResult):
         """Update processing statistics."""
         
-        self.processing_stats['total_videos_processed'] += 1
-        self.processing_stats['total_processing_time'] += result.processing_time
+        # Update stats with type safety
+        try:
+            current_total = int(self.processing_stats.get('total_videos_processed', 0))
+        except (ValueError, TypeError):
+            current_total = 0
+        self.processing_stats['total_videos_processed'] = current_total + 1
         
-        # Calculate average
-        total_videos = self.processing_stats['total_videos_processed']
+        try:
+            current_time = float(self.processing_stats.get('total_processing_time', 0.0))
+        except (ValueError, TypeError):
+            current_time = 0.0
+        self.processing_stats['total_processing_time'] = current_time + result.processing_time
+        
+        # Calculate average with type safety
+        try:
+            total_videos = int(self.processing_stats.get('total_videos_processed', 1))
+            total_time = float(self.processing_stats.get('total_processing_time', 0.0))
+        except (ValueError, TypeError):
+            total_videos = 1
+            total_time = 0.0
+        
         self.processing_stats['average_processing_time'] = (
-            self.processing_stats['total_processing_time'] / total_videos
+            total_time / max(total_videos, 1)  # Prevent division by zero
         )
         
         # Success rate (based on confidence threshold)
         success_threshold = 0.6
         if result.overall_confidence >= success_threshold:
             current_success_rate = self.processing_stats.get('successful_videos', 0)
-            self.processing_stats['successful_videos'] = current_success_rate + 1
+            # Ensure type safety - convert to int if it's a string
+            try:
+                current_success_count = int(current_success_rate) if current_success_rate is not None else 0
+            except (ValueError, TypeError):
+                current_success_count = 0
+            self.processing_stats['successful_videos'] = current_success_count + 1
+        
+        # Calculate success rate with type safety
+        try:
+            successful_videos = int(self.processing_stats.get('successful_videos', 0))
+        except (ValueError, TypeError):
+            successful_videos = 0
         
         self.processing_stats['success_rate'] = (
-            self.processing_stats.get('successful_videos', 0) / total_videos
+            successful_videos / total_videos
         )
     
     def get_processing_statistics(self) -> Dict:

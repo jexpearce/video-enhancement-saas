@@ -336,9 +336,16 @@ class StyleEngine:
             "platform_preferences": {}
         }
         
-        # Get most popular templates
+        # Get most popular templates with safe type conversion
         all_templates = list(self.template_manager.templates.values())
-        all_templates.sort(key=lambda t: t.popularity_score, reverse=True)
+        
+        def safe_popularity_score_key(t) -> float:
+            try:
+                return float(t.popularity_score) if t.popularity_score is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        all_templates.sort(key=safe_popularity_score_key, reverse=True)
         
         analytics["most_popular_templates"] = [
             {

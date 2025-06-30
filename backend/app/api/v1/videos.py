@@ -371,14 +371,41 @@ async def process_video_background(job_id: str):
             for entity in result.enriched_entities
         ]
         
-        # Performance metrics
-        job.processing_time_seconds = result.processing_time
-        job.audio_enhancement_time = result.audio_enhancement_time
-        job.transcription_time = result.transcription_time
-        job.emphasis_detection_time = result.emphasis_detection_time
-        job.entity_extraction_time = result.entity_recognition_time
-        job.image_search_time = result.image_search_time
-        job.image_processing_time = result.image_processing_time
+        # Performance metrics with type safety
+        try:
+            job.processing_time_seconds = float(result.processing_time) if result.processing_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.processing_time_seconds = 0.0
+            
+        try:
+            job.audio_enhancement_time = float(result.audio_enhancement_time) if result.audio_enhancement_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.audio_enhancement_time = 0.0
+            
+        try:
+            job.transcription_time = float(result.transcription_time) if result.transcription_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.transcription_time = 0.0
+            
+        try:
+            job.emphasis_detection_time = float(result.emphasis_detection_time) if result.emphasis_detection_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.emphasis_detection_time = 0.0
+            
+        try:
+            job.entity_extraction_time = float(result.entity_recognition_time) if result.entity_recognition_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.entity_extraction_time = 0.0
+            
+        try:
+            job.image_search_time = float(result.image_search_time) if result.image_search_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.image_search_time = 0.0
+            
+        try:
+            job.image_processing_time = float(result.image_processing_time) if result.image_processing_time is not None else 0.0
+        except (ValueError, TypeError):
+            job.image_processing_time = 0.0
         
         # Mark as completed
         job.status = "completed"
@@ -398,7 +425,12 @@ async def process_video_background(job_id: str):
             if job:
                 job.status = "failed"
                 job.error_message = str(e)
-                job.retry_count += 1
+                # Ensure type safety for retry_count increment
+                try:
+                    current_retry_count = int(job.retry_count) if job.retry_count is not None else 0
+                except (ValueError, TypeError):
+                    current_retry_count = 0
+                job.retry_count = current_retry_count + 1
                 db.commit()
         except Exception as db_error:
             logger.error(f"Failed to update job status: {db_error}")

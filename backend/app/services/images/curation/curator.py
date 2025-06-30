@@ -322,12 +322,19 @@ class ImageCurator:
                     entity_specific=entity_scores[i]
                 )
                 
-                # Create curation metadata
+                # Create curation metadata with safe type conversion
+                try:
+                    quality_score = float(image.quality_score) if image.quality_score is not None else 0.0
+                    clip_score = float(clip_scores[i]) if clip_scores[i] is not None else 0.0
+                except (ValueError, TypeError):
+                    quality_score = 0.0
+                    clip_score = 0.0
+                
                 curation_metadata = {
-                    'clip_score': clip_scores[i],
+                    'clip_score': clip_score,
                     'entity_specific_score': entity_scores[i],
-                    'quality_bonus': max(0, image.quality_score - 0.5) * 0.1,
-                    'clip_bonus': max(0, clip_scores[i] - 0.7) * 0.1 if self.clip_available else 0.0,
+                    'quality_bonus': max(0, quality_score - 0.5) * 0.1,
+                    'clip_bonus': max(0, clip_score - 0.7) * 0.1 if self.clip_available else 0.0,
                     'curation_timestamp': datetime.utcnow(),
                     'curation_version': '1.0',
                     'models_used': {
@@ -367,12 +374,16 @@ class ImageCurator:
         try:
             logger.warning(f"Using fallback curation for entity: {entity.text}")
             
-            # Sort by original quality and relevance scores
-            sorted_images = sorted(
-                images, 
-                key=lambda img: (img.quality_score + img.relevance_score) / 2, 
-                reverse=True
-            )
+            # Sort by original quality and relevance scores with safe type conversion
+            def safe_combined_fallback_score(img: ImageResult) -> float:
+                try:
+                    quality = float(img.quality_score) if img.quality_score is not None else 0.0
+                    relevance = float(img.relevance_score) if img.relevance_score is not None else 0.0
+                    return (quality + relevance) / 2
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            sorted_images = sorted(images, key=safe_combined_fallback_score, reverse=True)
             
             curated_images = []
             for i, image in enumerate(sorted_images[:self.max_images_per_entity]):

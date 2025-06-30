@@ -138,8 +138,16 @@ class WikimediaProvider(ImageProvider):
                         logger.warning(f"Failed to process Wikimedia page: {e}")
                         continue
                         
-            # 3. Sort by quality and relevance, return top N
-            images.sort(key=lambda x: (x.quality_score + x.relevance_score) / 2, reverse=True)
+            # 3. Sort by quality and relevance, return top N with safe type conversion
+            def safe_combined_score(x: ImageResult) -> float:
+                try:
+                    quality = float(x.quality_score) if x.quality_score is not None else 0.0
+                    relevance = float(x.relevance_score) if x.relevance_score is not None else 0.0
+                    return (quality + relevance) / 2
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            images.sort(key=safe_combined_score, reverse=True)
             return images[:count]
             
         except aiohttp.ClientError as e:
