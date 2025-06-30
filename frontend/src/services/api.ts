@@ -62,9 +62,7 @@ class ApiService {
     formData.append('user_id', 'user_' + Date.now()); // In production, get from auth
 
     const response = await this.client.post<UploadResponse>('/videos/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // Don't set Content-Type for FormData - axios will set it automatically with boundary
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total && onProgress) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);

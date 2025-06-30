@@ -82,8 +82,13 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUploadStart }) => {
     onUploadStart?.();
 
     try {
+      // Ensure file has a name
+      const fileWithName = new File([file], file.name || 'video.mp4', {
+        type: file.type
+      });
+
       const response = await apiService.uploadVideo(
-        file,
+        fileWithName,
         preferences,
         setUploadProgress
       );
@@ -93,7 +98,21 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUploadStart }) => {
       // Navigate to processing dashboard
       navigate(`/dashboard/${response.job_id}`);
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Upload failed');
+      console.error('Upload error:', error);
+      
+      // Extract error message safely
+      let errorMessage = 'Upload failed';
+      if (error.response?.data?.detail) {
+        if (typeof error.response.data.detail === 'string') {
+          errorMessage = error.response.data.detail;
+        } else if (Array.isArray(error.response.data.detail)) {
+          errorMessage = error.response.data.detail[0]?.msg || 'Upload failed';
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
       setUploading(false);
       setUploadProgress(0);
     }

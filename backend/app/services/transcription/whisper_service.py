@@ -137,8 +137,8 @@ class WhisperService:
                 condition_on_previous_text=self.config.condition_on_previous_text,
                 word_timestamps=True,
                 # Enhanced punctuation handling
-                prepend_punctuations="\"'"¿([{-",
-                append_punctuations="\"'.。,，!！?？:：")]}、",
+                prepend_punctuations="\"'?([{-",
+                append_punctuations="\"'.,!?:)]}",
                 # Improved segment detection
                 no_speech_threshold=self.config.no_speech_threshold,
                 logprob_threshold=self.config.logprob_threshold

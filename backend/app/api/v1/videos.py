@@ -62,9 +62,12 @@ async def upload_video(
         ProcessVideoResponse with job ID and status
     """
     
+    logger.info(f"Upload attempt - filename: {file.filename}, content_type: {file.content_type}, user_id: {user_id}, target_platform: {target_platform}")
+    
     try:
         # Validate file
         if not file.content_type or file.content_type not in ALLOWED_VIDEO_FORMATS:
+            logger.warning(f"Invalid content type: {file.content_type}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported file format. Allowed: {', '.join(ALLOWED_VIDEO_FORMATS)}"

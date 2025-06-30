@@ -264,22 +264,22 @@ class EntityRecognizer:
             
             for pattern in patterns:
                 for match in pattern.finditer(text):
-                                         entity = EntityResult(
-                         text=match.group(),
-                         entity_type=entity_type,
-                         start_char=match.start(),
-                         end_char=match.end(),
-                         confidence=0.8,  # High confidence for regex matches
-                         image_potential=self.image_potential_map[entity_type],
-                         canonical_name=match.group(),
-                         aliases=list(),
-                         category=category,
-                         context_score=0.0,
-                         recognition_sources=['regex'],
-                         spacy_label=None,
-                         regex_pattern=pattern.pattern
-                     )
-                     entities.append(entity)
+                    entity = EntityResult(
+                        text=match.group(),
+                        entity_type=entity_type,
+                        start_char=match.start(),
+                        end_char=match.end(),
+                        confidence=0.8,  # High confidence for regex matches
+                        image_potential=self.image_potential_map[entity_type],
+                        canonical_name=match.group(),
+                        aliases=list(),
+                        category=category,
+                        context_score=0.0,
+                        recognition_sources=['regex'],
+                        spacy_label=None,
+                        regex_pattern=pattern.pattern
+                    )
+                    entities.append(entity)
         
         return entities
     

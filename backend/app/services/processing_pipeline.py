@@ -18,12 +18,12 @@ from datetime import datetime
 from pathlib import Path
 
 # Import our services
-from .audio.audio_processor import AudioProcessor
-from .audio.whisper_service import WhisperService
-from .emphasis.multimodal_emphasis_detector import MultiModalEmphasisDetector
+from .audio.processor import AudioProcessor
+from .transcription.whisper_service import WhisperService
+from .emphasis.detector import MultiModalEmphasisDetector
 from .nlp.entity_recognizer import EntityRecognizer
 from .nlp.entity_enricher import EntityEnricher
-from .images.image_searcher import ImageSearcher, SearchRequest
+from .images.image_searcher import ImageSearcher
 from .images.image_processor import ImageProcessor
 from .images.content_matcher import ContentMatcher, VideoSegment
 
@@ -314,16 +314,13 @@ class ProcessingPipeline:
         
         # Extract entities
         entities = await asyncio.get_event_loop().run_in_executor(
-            None, self.entity_recognizer.extract_entities, transcription
+            None, self.entity_recognizer.recognize_entities, transcription
         )
         
         # Enrich entities 
-        enriched_entities = []
-        for entity in entities:
-            enriched = await asyncio.get_event_loop().run_in_executor(
-                None, self.entity_enricher.enrich_entity, entity
-            )
-            enriched_entities.append(enriched)
+        enriched_entities = await asyncio.get_event_loop().run_in_executor(
+            None, self.entity_enricher.enrich_entities, entities
+        )
         
         logger.info(f"Extracted {len(entities)} entities, enriched {len(enriched_entities)}")
         return entities, enriched_entities
@@ -333,18 +330,17 @@ class ProcessingPipeline:
         
         image_results = []
         
-        async with self.image_searcher as searcher:
-            for entity in enriched_entities[:self.config.max_entities_per_segment]:
-                # Skip low-quality entities
-                if hasattr(entity, 'image_potential') and entity.image_potential < self.config.entity_confidence_threshold:
-                    continue
-                
-                # Search for images
-                entity_images = await searcher.search_for_entity(entity)
-                
-                # Limit results per entity
-                entity_images = entity_images[:self.config.max_images_per_entity]
-                image_results.extend(entity_images)
+        for entity in enriched_entities[:self.config.max_entities_per_segment]:
+            # Skip low-quality entities
+            if hasattr(entity, 'image_potential') and entity.image_potential < self.config.entity_confidence_threshold:
+                continue
+
+            # Search for images
+            entity_images = await self.image_searcher.search_for_entity(entity)
+
+            # Limit results per entity
+            entity_images = entity_images[:self.config.max_images_per_entity]
+            image_results.extend(entity_images)
         
         logger.info(f"Found {len(image_results)} images for {len(enriched_entities)} entities")
         return image_results

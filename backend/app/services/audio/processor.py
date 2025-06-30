@@ -10,7 +10,7 @@ from scipy import signal
 from scipy.signal import butter, filtfilt, hilbert
 from ...models.schemas import AudioSegment, ProcessedAudio
 from .quality_analyzer import AudioQualityAnalyzer, QualityMetrics
-from ..config import settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
