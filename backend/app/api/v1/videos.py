@@ -408,8 +408,9 @@ async def process_video_background(job_id: str):
             job.image_processing_time = 0.0
         
         # Mark as completed
+        from datetime import datetime
         job.status = "completed"
-        job.completed_at = db.execute("SELECT NOW()").scalar()
+        job.completed_at = datetime.now()
         job.final_video_url = result.enhanced_audio_path  # Placeholder
         
         db.commit()

@@ -429,32 +429,47 @@ class ProcessingPipeline:
         entity_weight = 0.3
         image_weight = 0.4
         
-        # Emphasis accuracy (based on confidence scores)
+        # Emphasis accuracy (based on confidence scores) with type safety
         if result.emphasized_segments:
-            result.emphasis_accuracy = sum(
-                seg['confidence'] for seg in result.emphasized_segments
-            ) / len(result.emphasized_segments)
+            confidence_scores = []
+            for seg in result.emphasized_segments:
+                try:
+                    confidence = float(seg['confidence'])
+                except (ValueError, TypeError):
+                    confidence = 0.0  # Default fallback
+                confidence_scores.append(confidence)
+            
+            result.emphasis_accuracy = sum(confidence_scores) / len(confidence_scores)
         else:
             result.emphasis_accuracy = 0.0
         
-        # Entity recognition accuracy (based on image potential)
+        # Entity recognition accuracy (based on image potential) with type safety
         if result.enriched_entities:
             entity_scores = []
             for entity in result.enriched_entities:
-                if hasattr(entity, 'image_potential'):
-                    entity_scores.append(entity.image_potential)
-                else:
-                    entity_scores.append(0.7)  # Default score
+                try:
+                    if hasattr(entity, 'image_potential'):
+                        score = float(entity.image_potential)
+                    else:
+                        score = 0.7  # Default score
+                except (ValueError, TypeError):
+                    score = 0.7  # Default fallback
+                entity_scores.append(score)
             
             result.entity_recognition_accuracy = sum(entity_scores) / len(entity_scores)
         else:
             result.entity_recognition_accuracy = 0.0
         
-        # Image match quality (based on match scores)
+        # Image match quality (based on match scores) with type safety
         if result.content_matches:
-            match_scores = [
-                getattr(match, 'match_score', 0.7) for match in result.content_matches
-            ]
+            match_scores = []
+            for match in result.content_matches:
+                try:
+                    score = float(getattr(match, 'match_score', 0.7))
+                except (ValueError, TypeError):
+                    score = 0.7  # Default fallback
+                match_scores.append(score)
+            
             result.image_match_quality = sum(match_scores) / len(match_scores)
         else:
             result.image_match_quality = 0.0
