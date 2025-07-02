@@ -14,7 +14,7 @@ from app.database.connection import get_db
 from app.database.models import ProcessingJob, StoredImage, EnrichedEntity
 
 # Import schemas
-from app.models.schemas import JobStatusResponse, JobStatus
+from app.models.schemas import JobStatusResponse, JobStatus, JobResult
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +63,21 @@ async def get_job_status(
             # Get entities count
             entity_count = db.query(EnrichedEntity).filter(EnrichedEntity.job_id == job_id).count()
             
-            result = {
-                "transcript": job.transcript,
-                "emphasis_points_count": len(job.emphasis_points) if job.emphasis_points else 0,
-                "entities_count": entity_count,
-                "images_count": image_count,
-                "final_video_url": job.final_video_url,
-                "processing_time": job.processing_time_seconds
-            }
+            # Convert local file paths to HTTP URLs for backward compatibility
+            final_video_url = job.final_video_url
+            if final_video_url and final_video_url.startswith("/tmp/video_enhancement/"):
+                relative_path = final_video_url.replace("/tmp/video_enhancement/", "")
+                final_video_url = f"http://localhost:8000/api/v1/files/{relative_path}"
+            
+            # Create JobResult object
+            result = JobResult(
+                transcript=job.transcript,
+                emphasis_points_count=len(job.emphasis_points) if job.emphasis_points else 0,
+                entities_count=entity_count,
+                images_count=image_count,
+                final_video_url=final_video_url,
+                processing_time=job.processing_time_seconds
+            )
         
         return JobStatusResponse(
             job_id=job_id,

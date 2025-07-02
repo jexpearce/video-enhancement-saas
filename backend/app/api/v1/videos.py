@@ -6,15 +6,20 @@ Handles video uploads, processing job creation, and result management.
 
 import os
 import hashlib
+import aiofiles
+import shutil
+from pathlib import Path
+from typing import Optional, List
+from datetime import datetime
 import logging
-from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
 # Import database dependencies
 from app.database.connection import get_db
-from app.database.models import ProcessingJob, StoredImage
+from app.database.models import ProcessingJob, StoredImage, EnrichedEntity
 
 # Import processing services
 from app.services.processing_pipeline import ProcessingPipeline, ProcessingConfig
@@ -411,7 +416,13 @@ async def process_video_background(job_id: str):
         from datetime import datetime
         job.status = "completed"
         job.completed_at = datetime.now()
-        job.final_video_url = result.enhanced_audio_path  # Placeholder
+        
+        # Convert local file path to backend URL
+        if result.enhanced_video_path and result.enhanced_video_path.startswith("/tmp/video_enhancement/"):
+            relative_path = result.enhanced_video_path.replace("/tmp/video_enhancement/", "")
+            job.final_video_url = f"http://localhost:8000/api/v1/files/{relative_path}"
+        else:
+            job.final_video_url = result.enhanced_video_path  # Fallback
         
         db.commit()
         
@@ -437,4 +448,63 @@ async def process_video_background(job_id: str):
             logger.error(f"Failed to update job status: {db_error}")
     
     finally:
-        db.close() 
+        db.close()
+
+@router.get("/files/{file_path:path}")
+async def serve_file(file_path: str):
+    """
+    Serve processed video files and other assets.
+    
+    Args:
+        file_path: Relative path to file (e.g., "jobs/123/enhanced_video_456.mp4")
+        
+    Returns:
+        StreamingResponse with video file
+    """
+    
+    try:
+        # Construct full file path
+        full_path = f"/tmp/video_enhancement/{file_path}"
+        
+        # Security check - ensure path is within allowed directory
+        if not os.path.abspath(full_path).startswith("/tmp/video_enhancement/"):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if file exists
+        if not os.path.exists(full_path):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Determine content type based on file extension
+        file_ext = os.path.splitext(full_path)[1].lower()
+        content_type = "application/octet-stream"  # Default
+        
+        if file_ext in ['.mp4', '.mov']:
+            content_type = "video/mp4"
+        elif file_ext in ['.avi']:
+            content_type = "video/avi"
+        elif file_ext in ['.webm']:
+            content_type = "video/webm"
+        elif file_ext in ['.wav']:
+            content_type = "audio/wav"
+        elif file_ext in ['.mp3']:
+            content_type = "audio/mpeg"
+        
+        # Stream file
+        def iterfile():
+            with open(full_path, mode="rb") as file_like:
+                yield from file_like
+        
+        return StreamingResponse(
+            iterfile(),
+            media_type=content_type,
+            headers={"Content-Disposition": f"inline; filename={os.path.basename(full_path)}"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"File serving failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to serve file"
+        ) 
