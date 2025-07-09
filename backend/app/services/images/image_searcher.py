@@ -242,12 +242,10 @@ class ImageSearcher:
             #     pexels_results = await self._search_pexels(optimized_query, search_request)
             #     all_results.extend(pexels_results)
             
-            # Ensure we have real results
+            # Handle case where no results are found
             if not all_results:
-                raise RuntimeError(
-                    f"No images found for query: {search_request.query}. "
-                    f"Check your API key and try again."
-                )
+                logger.warning(f"No images found for query: {search_request.query}")
+                return []  # Return empty list to continue processing other entities
             
             # Score and rank all results
             ranked_results = self._score_and_rank_results(all_results, search_request)
@@ -527,7 +525,7 @@ class ImageSearcher:
         search_request = SearchRequest(
             query=entity.text,
             entity_name=entity.text,
-            entity_type=entity.type,
+            entity_type=getattr(entity, 'entity_type', getattr(entity, 'type', 'MISC')),
             max_results=5,
             quality_threshold=0.6
         )

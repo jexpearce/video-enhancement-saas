@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 
-from ..curation.models import CuratedImage, WordContext
-from ...audio.entity_enricher import EnrichedEntity
+from ..curation.curator import CuratedImage, WordContext
+from ....database.models import EnrichedEntity
 
 
 @dataclass

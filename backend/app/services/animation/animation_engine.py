@@ -24,7 +24,7 @@ from .easing import EasingFunction, EasingType
 from .effects import ImageAnimation, TransitionEffect, KenBurnsEffect
 from .synchronizer import EmphasisSynchronizer, BeatSynchronizer
 from ..images.styles.models import StyleTemplate
-from ..audio.models import EmphasisPoint
+from ...database.models import EmphasisPoint
 from ..images.ranking.models import RankedImage
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class AnimationConfig:
     max_timeline_events: int = 50           # Limit events to prevent overload
     enable_gpu_acceleration: bool = True    # Use GPU for effects when available
 
-@dataclass
+@dataclass(eq=False)
 class GroupedEmphasis:
     """Group of nearby emphasis points treated as one animation unit."""
     
@@ -68,6 +68,19 @@ class GroupedEmphasis:
     @property
     def center_time(self) -> float:
         return (self.start_time + self.end_time) / 2
+        
+    def __hash__(self):
+        """Make GroupedEmphasis hashable for use as dictionary keys."""
+        return hash((self.start_time, self.end_time, self.primary_entity, self.energy_level))
+        
+    def __eq__(self, other):
+        """Define equality for hashing."""
+        if not isinstance(other, GroupedEmphasis):
+            return False
+        return (self.start_time == other.start_time and 
+                self.end_time == other.end_time and 
+                self.primary_entity == other.primary_entity and 
+                self.energy_level == other.energy_level)
 
 class AnimationEngine:
     """
@@ -82,7 +95,7 @@ class AnimationEngine:
     - Performance optimization with GPU acceleration
     """
     
-    def __init__(self, config: AnimationConfig = None):
+    def __init__(self, config: Optional[AnimationConfig] = None):
         """Initialize animation engine."""
         self.config = config or AnimationConfig()
         
@@ -134,7 +147,12 @@ class AnimationEngine:
             logger.debug(f"Grouped {len(emphasis_points)} points into {len(grouped_points)} groups")
             
             # 2. Assign images to groups based on relevance and timing
-            image_assignments = self._assign_images_to_groups(grouped_points, ranked_images)
+            try:
+                image_assignments = self._assign_images_to_groups(grouped_points, ranked_images)
+                logger.debug(f"✅ Image assignment successful: {len(image_assignments)} groups")
+            except Exception as assignment_error:
+                logger.error(f"❌ Image assignment failed: {assignment_error}")
+                raise assignment_error
             
             # 3. Create animation timeline
             timeline = {
@@ -265,7 +283,11 @@ class AnimationEngine:
         assignments = {}
         used_images = set()
         
-        for group in grouped_points:
+        logger.debug(f"🔧 Assigning {len(ranked_images)} images to {len(grouped_points)} groups")
+        
+        for i, group in enumerate(grouped_points):
+            logger.debug(f"🔧 Group {i}: {group.primary_entity} ({group.start_time:.1f}s-{group.end_time:.1f}s)")
+            
             # Find images matching the primary entity
             matching_images = [
                 img for img in ranked_images
@@ -284,12 +306,16 @@ class AnimationEngine:
             num_images = self._determine_image_count(group)
             selected_images = matching_images[:num_images]
             
+            logger.debug(f"🔧 Selected {len(selected_images)} images for group {i}")
+            
             # Mark images as used
             for img in selected_images:
                 used_images.add(img.get('image_id'))
             
+            # FIXED: This should now work with hashable GroupedEmphasis
             assignments[group] = selected_images
         
+        logger.debug(f"🔧 Image assignment completed: {len(assignments)} groups with images")
         return assignments
     
     def _determine_image_count(self, group: GroupedEmphasis) -> int:
@@ -658,16 +684,23 @@ class AnimationEngine:
             'events': []
         }
         
+        logger.warning("Creating fallback timeline due to animation engine error")
+        
         # Simple fade animations for top images
         for i, point in enumerate(emphasis_points[:5]):  # Limit to 5
             if i < len(ranked_images):
                 image = ranked_images[i]
                 point_start = point.get('start_time', i * 2)
                 
+                # FIXED: Use actual image_id instead of generic fallback
+                image_id = image.get('image_id') or image.get('id') or f'fallback_image_{i}'
+                
+                logger.info(f"🔧 Fallback: Using image_id '{image_id}' for emphasis point at {point_start}s")
+                
                 # Simple fade in/out
                 fade_in = {
                     'type': 'image_entry',
-                    'target_id': image.get('image_id', f'image_{i}'),
+                    'target_id': image_id,
                     'start_time': point_start,
                     'duration': 0.5,
                     'properties': {'animation': 'fade', 'position': 'top_right'}
@@ -675,7 +708,7 @@ class AnimationEngine:
                 
                 fade_out = {
                     'type': 'image_exit',
-                    'target_id': image.get('image_id', f'image_{i}'),
+                    'target_id': image_id,
                     'start_time': point_start + 2.5,
                     'duration': 0.5,
                     'properties': {'animation': 'fade', 'position': 'top_right'}
@@ -683,6 +716,7 @@ class AnimationEngine:
                 
                 timeline['events'].extend([fade_in, fade_out])
         
+        logger.info(f"🔧 Fallback timeline created with {len(timeline['events'])} events")
         return timeline
     
     def _update_performance_stats(self, processing_time_ms: float):

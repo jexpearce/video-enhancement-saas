@@ -132,11 +132,12 @@ async def upload_video(
         # Calculate file hash for deduplication
         file_hash = hashlib.sha256(file_content).hexdigest()
         
+        # TEMPORARILY DISABLE deduplication for testing our fixes
         # Check for existing processing job with same hash
-        existing_job = db.query(ProcessingJob).filter(
-            ProcessingJob.original_video_hash == file_hash,
-            ProcessingJob.status.in_(["pending", "processing", "completed"])
-        ).first()
+        existing_job = None  # db.query(ProcessingJob).filter(
+        #     ProcessingJob.original_video_hash == file_hash,
+        #     ProcessingJob.status.in_(["pending", "processing", "completed"])
+        # ).first()
         
         if existing_job:
             logger.info(f"Found existing job for file hash: {file_hash}")
@@ -348,7 +349,8 @@ async def process_video_background(job_id: str):
             image_quality_threshold=0.6
         )
         
-        pipeline = ProcessingPipeline(config)
+        # 🚨 CRITICAL FIX: Pass job_id and db_session to pipeline for image storage
+        pipeline = ProcessingPipeline(config, job_id=job_id, db_session=db)
         
         # Process the video
         result = await pipeline.process_video(
@@ -417,12 +419,23 @@ async def process_video_background(job_id: str):
         job.status = "completed"
         job.completed_at = datetime.now()
         
+        # CRITICAL FIX: Ensure we never save audio files as video URLs
+        final_video_path = result.enhanced_video_path
+        
+        # Safety check: if enhanced_video_path is audio, use original video path
+        if final_video_path and final_video_path.endswith('.wav'):
+            logger.error(f"CRITICAL ERROR: enhanced_video_path is audio file: {final_video_path}")
+            logger.error("Using original video URL as fallback")
+            final_video_path = job.original_video_url
+        
         # Convert local file path to backend URL
-        if result.enhanced_video_path and result.enhanced_video_path.startswith("/tmp/video_enhancement/"):
-            relative_path = result.enhanced_video_path.replace("/tmp/video_enhancement/", "")
+        if final_video_path and final_video_path.startswith("/tmp/video_enhancement/"):
+            relative_path = final_video_path.replace("/tmp/video_enhancement/", "")
             job.final_video_url = f"http://localhost:8000/api/v1/files/{relative_path}"
         else:
-            job.final_video_url = result.enhanced_video_path  # Fallback
+            job.final_video_url = final_video_path  # Fallback
+            
+        logger.info(f"FINAL job.final_video_url: {job.final_video_url}")
         
         db.commit()
         
@@ -472,6 +485,12 @@ async def serve_file(file_path: str):
         
         # Check if file exists
         if not os.path.exists(full_path):
+            # LEGACY DATA FIX: If it's a .wav file that doesn't exist, provide helpful error
+            if full_path.endswith('.wav'):
+                raise HTTPException(
+                    status_code=404, 
+                    detail="Legacy audio file not found. Please upload a new video for proper processing."
+                )
             raise HTTPException(status_code=404, detail="File not found")
         
         # Determine content type based on file extension

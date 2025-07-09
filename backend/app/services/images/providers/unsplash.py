@@ -128,10 +128,8 @@ class UnsplashProvider(ImageProvider):
         Returns:
             List of ImageResult objects
         """
-        if not self.session:
-            async with self:
-                return await self._perform_search(query, count)
-        else:
+        # Always use a fresh session for each search to avoid "Session is closed" errors
+        async with self:
             return await self._perform_search(query, count)
             
     async def _perform_search(self, query: str, count: int) -> List[ImageResult]:

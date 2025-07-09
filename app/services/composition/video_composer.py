@@ -39,7 +39,7 @@ from .models import (
 from ..animation.animation_engine import AnimationEngine
 from ..animation.timeline import Timeline as AnimationTimeline
 from ..images.storage.s3_manager import ImageStorageManager
-from ..style.style_engine import StyleEngine
+from ..images.styles.style_engine import StyleEngine
 
 logger = logging.getLogger(__name__)
 

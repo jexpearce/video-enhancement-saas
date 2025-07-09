@@ -143,8 +143,8 @@ class AudioProcessor:
     async def _extract_audio(self, video_path: str, video_info: Dict[str, Any]) -> str:
         """Extract audio from video using FFmpeg with optimal settings"""
         
-        # Create temporary file for raw audio
-        temp_audio = tempfile.mktemp(suffix='.wav')
+        # Create temporary file for raw audio with CLEAR AUDIO NAMING to avoid confusion
+        temp_audio = tempfile.mktemp(prefix='TEMP_AUDIO_EXTRACTION_', suffix='.wav')
         
         try:
             # Build FFmpeg command for optimal audio extraction
@@ -217,8 +217,8 @@ class AudioProcessor:
             # Always normalize
             y = self._normalize_audio(y)
             
-            # Save enhanced audio
-            enhanced_path = tempfile.mktemp(suffix='.wav')
+            # Save enhanced audio with CLEAR AUDIO NAMING to avoid confusion
+            enhanced_path = tempfile.mktemp(prefix='TEMP_ENHANCED_AUDIO_', suffix='.wav')
             librosa.output.write_wav(enhanced_path, y, sr)
             
             # Clean up original

@@ -37,7 +37,7 @@ from .models import (
 
 # Import existing sophisticated systems  
 from ..animation.animation_engine import AnimationEngine
-from ..animation.timeline import Timeline as AnimationTimeline
+from ..animation.timeline import AnimationTimeline
 from ..images.storage.s3_manager import ImageStorageManager
 from ..images.styles.style_engine import StyleEngine
 
@@ -60,7 +60,10 @@ class VideoComposer:
         self.animation_engine = AnimationEngine()
         self.style_engine = StyleEngine()
         try:
-            self.storage_manager = ImageStorageManager()
+            # Import and initialize StorageConfig for ImageStorageManager
+            from ..images.storage.config import StorageConfig
+            storage_config = StorageConfig()
+            self.storage_manager = ImageStorageManager(storage_config)
         except Exception as e:
             logger.warning(f"Storage manager initialization failed: {e}")
             self.storage_manager = None
@@ -126,24 +129,41 @@ class VideoComposer:
             
             # Stage 1: Process animation timeline
             timeline_start = time.time()
+            logger.info(f"🎬 Stage 1: Processing animation timeline with {len(curated_images)} curated images")
+            for i, img in enumerate(curated_images[:3]):  # Log first 3 images
+                img_type = "ProcessedImage" if hasattr(img, 'original_url') else "Dictionary"
+                img_id = getattr(img, 'cache_key', None) if hasattr(img, 'cache_key') else img.get('image_id', img.get('id', 'no_id'))
+                logger.info(f"🎬   Image {i}: {img_type}, ID: {img_id}")
+            
             composition_timeline = await self._process_animation_timeline(
                 composition_data, video_metadata
             )
             self.processing_stats['timeline_processing_time'] = time.time() - timeline_start
             
+            logger.info(f"🎬 Animation timeline created with {len(composition_timeline.events)} events")
+            for i, event in enumerate(composition_timeline.events[:5]):  # Log first 5 events
+                logger.info(f"🎬   Event {i}: {event.get('type')} -> target_id: {event.get('target_id')}")
+            
             # Stage 2: Prepare overlay assets
             asset_start = time.time()
+            logger.info(f"🎬 Stage 2: Preparing overlay assets from timeline events")
             overlay_assets = await self._prepare_overlay_assets(
                 curated_images, composition_timeline
             )
             self.processing_stats['asset_download_time'] = time.time() - asset_start
             self.processing_stats['total_assets_processed'] = len(overlay_assets)
             
+            logger.info(f"🎬 Prepared {len(overlay_assets)} overlay assets")
+            for i, asset in enumerate(overlay_assets):
+                logger.info(f"🎬   Asset {i}: {asset.asset_id} -> {asset.local_path}")
+            
             # Stage 3: Generate complex filter graph
-            logger.info("Building FFmpeg filter graph")
+            logger.info("🎬 Stage 3: Building FFmpeg filter graph")
             filter_graph = await self._build_filter_graph(
                 overlay_assets, composition_timeline, selected_style, video_metadata
             )
+            
+            logger.info(f"🎬 Filter graph created: {len(filter_graph.filters) if hasattr(filter_graph, 'filters') else 'unknown'} filters")
             
             # Stage 4: Create caption overlays if needed
             caption_filter = None
@@ -235,17 +255,73 @@ class VideoComposer:
                 video_duration = video_metadata.get('duration', 0)
                 audio_beats = composition_data.get('audio_features', {}).get('beats', [])
                 
-                # Create ranked images format expected by animation engine
-                ranked_images = [
-                    {
-                        'id': img.get('id', f"img_{i}"),
-                        'url': img.get('url', ''),
-                        'entity_name': img.get('entity_name', ''),
-                        'relevance_score': img.get('relevance_score', 0.5),
-                        'quality_score': img.get('quality_score', 0.5)
-                    }
-                    for i, img in enumerate(curated_images)
-                ]
+                # FIXED: Convert ProcessedImage objects to dictionary format
+                ranked_images = []
+                for i, img in enumerate(curated_images):
+                    try:
+                        # Handle ProcessedImage objects vs dictionaries
+                        if hasattr(img, 'original_url'):  # ProcessedImage object
+                            # Create a consistent image_id that can be matched later
+                            img_id = getattr(img, 'cache_key', None) or f"processed_img_{i}"
+                            entity_name = getattr(img, 'entity_name', f"entity_{i}")
+                            
+                            img_dict = {
+                                'id': img_id,
+                                'image_id': img_id,  # Ensure we have image_id field
+                                'entity_id': entity_name,  # Ensure we have entity_id field
+                                'url': getattr(img, 'original_url', ''),
+                                'local_path': getattr(img, 'processed_path', ''),
+                                'entity_name': entity_name,
+                                'relevance_score': 0.8,  # Default high score for processed images
+                                'quality_score': min(1.0, getattr(img, 'file_size', 0) / 100000),  # File size based quality
+                                'width': getattr(img, 'width', 0),
+                                'height': getattr(img, 'height', 0),
+                                'cache_key': img_id,  # For VideoComposer matching
+                                'original_url': getattr(img, 'original_url', ''),  # For VideoComposer matching
+                            }
+                        else:  # Already a dictionary
+                            # Ensure consistent ID fields
+                            img_id = img.get('id') or img.get('image_id') or f"dict_img_{i}"
+                            entity_name = img.get('entity_name') or img.get('entity_id') or f"entity_{i}"
+                            
+                            img_dict = {
+                                'id': img_id,
+                                'image_id': img_id,  # Ensure we have image_id field
+                                'entity_id': entity_name,  # Ensure we have entity_id field
+                                'url': img.get('url', ''),
+                                'local_path': img.get('local_path', ''),
+                                'entity_name': entity_name,
+                                'relevance_score': img.get('relevance_score', 0.5),
+                                'quality_score': img.get('quality_score', 0.5),
+                                'width': img.get('width', 0),
+                                'height': img.get('height', 0),
+                                'cache_key': img_id,  # For VideoComposer matching
+                                'original_url': img.get('url', ''),  # For VideoComposer matching
+                            }
+                        
+                        ranked_images.append(img_dict)
+                        
+                    except Exception as img_error:
+                        logger.warning(f"Failed to convert image {i}: {img_error}")
+                        # Fallback dictionary with consistent IDs
+                        fallback_id = f"fallback_img_{i}"
+                        ranked_images.append({
+                            'id': fallback_id,
+                            'image_id': fallback_id,
+                            'entity_id': f"entity_{i}",
+                            'url': '',
+                            'entity_name': f"entity_{i}",
+                            'relevance_score': 0.3,
+                            'quality_score': 0.3,
+                            'cache_key': fallback_id,
+                            'original_url': '',
+                        })
+                
+                logger.info(f"🎬 Converted {len(ranked_images)} images for animation timeline")
+                
+                # DETAILED DEBUG: Show what image IDs we're passing to AnimationEngine
+                for i, img_dict in enumerate(ranked_images[:5]):  # Show first 5
+                    logger.info(f"🎬   Ranked Image {i}: image_id='{img_dict.get('image_id')}', entity_id='{img_dict.get('entity_id')}', cache_key='{img_dict.get('cache_key')}'")
                 
                 # Generate animation timeline
                 timeline_result = await self.animation_engine.create_image_animation_timeline(
@@ -273,9 +349,15 @@ class VideoComposer:
                     
                     matching_image = None
                     for img in curated_images:
-                        if img.get('id') == image_id or img.get('entity_name') == image_id:
-                            matching_image = img
-                            break
+                        # Handle both ProcessedImage objects and dictionaries
+                        if hasattr(img, 'cache_key'):  # ProcessedImage object
+                            if getattr(img, 'cache_key', '') == image_id:
+                                matching_image = img
+                                break
+                        else:  # Dictionary
+                            if img.get('id') == image_id or img.get('entity_name') == image_id:
+                                matching_image = img
+                                break
                     
                     if matching_image:
                         # Will be processed in _prepare_overlay_assets
@@ -285,6 +367,9 @@ class VideoComposer:
             return composition_timeline
             
         except Exception as e:
+            import traceback
+            logger.error(f"Timeline processing error: {e}")
+            logger.error(f"Timeline traceback: {traceback.format_exc()}")
             raise TimelineError(f"Failed to process animation timeline: {e}")
     
     async def _prepare_overlay_assets(
@@ -305,16 +390,32 @@ class VideoComposer:
                 image_id = event.get('target_id')
                 matching_image = None
                 
+                logger.debug(f"🔍 Looking for image with target_id: {image_id}")
+                logger.debug(f"🔍 Available curated_images: {[img.get('image_id', img.get('id', 'no_id')) if isinstance(img, dict) else getattr(img, 'cache_key', 'no_cache_key') for img in curated_images]}")
+                
                 for img in curated_images:
-                    # Try multiple ID matching strategies
-                    if (img.get('id') == image_id or 
-                        img.get('entity_name') == image_id or
-                        img.get('title', '').lower() == str(image_id).lower()):
-                        matching_image = img
-                        break
+                    # FIXED: Handle both ProcessedImage objects and dictionaries with consistent field matching
+                    if hasattr(img, 'cache_key'):  # ProcessedImage object
+                        cache_key = getattr(img, 'cache_key', '')
+                        if cache_key == image_id:
+                            matching_image = img
+                            logger.debug(f"✅ Found matching ProcessedImage by cache_key: {cache_key}")
+                            break
+                    else:  # Dictionary
+                        # Check multiple possible ID fields
+                        img_id = img.get('image_id') or img.get('id')
+                        entity_id = img.get('entity_id') or img.get('entity_name')
+                        
+                        if (img_id == image_id or 
+                            entity_id == image_id or
+                            img.get('cache_key') == image_id):
+                            matching_image = img
+                            logger.debug(f"✅ Found matching dictionary image by id: {img_id} or entity_id: {entity_id}")
+                            break
                 
                 if not matching_image:
-                    logger.warning(f"No matching image found for ID: {image_id}")
+                    logger.warning(f"❌ No matching image found for target_id: {image_id}")
+                    logger.warning(f"❌ Available image IDs: {[getattr(img, 'cache_key', 'no_cache_key') if hasattr(img, 'cache_key') else img.get('image_id', img.get('id', 'no_id')) for img in curated_images]}")
                     continue
                 
                 # Download image to local temp file
@@ -324,12 +425,24 @@ class VideoComposer:
                     logger.warning(f"Failed to download image: {matching_image}")
                     continue
                 
+                # FIXED: Handle ProcessedImage objects vs dictionaries
+                if hasattr(matching_image, 'original_url'):  # ProcessedImage object
+                    original_url = getattr(matching_image, 'original_url', '')
+                    entity_name = getattr(matching_image, 'entity_name', f"entity_{image_id}")
+                    relevance_score = 0.8  # Default for processed images
+                    quality_score = min(1.0, getattr(matching_image, 'file_size', 0) / 100000)
+                else:  # Dictionary
+                    original_url = matching_image.get('url', '')
+                    entity_name = matching_image.get('entity_name', '')
+                    relevance_score = matching_image.get('relevance_score', 0)
+                    quality_score = matching_image.get('quality_score', 0)
+                
                 # Create composition asset
                 asset = CompositionAsset(
                     asset_id=str(image_id),
                     asset_type='image',
                     local_path=local_path,
-                    original_url=matching_image.get('url', ''),
+                    original_url=original_url,
                     start_time=event.get('start_time', 0),
                     duration=event.get('duration', self.config.overlay_duration_default),
                     position=event.get('properties', {}).get('position', 'top-right'),
@@ -341,9 +454,9 @@ class VideoComposer:
                         event.get('start_time', 0) + event.get('duration', 0)
                     ),
                     metadata={
-                        'entity_name': matching_image.get('entity_name', ''),
-                        'relevance_score': matching_image.get('relevance_score', 0),
-                        'quality_score': matching_image.get('quality_score', 0)
+                        'entity_name': entity_name,
+                        'relevance_score': relevance_score,
+                        'quality_score': quality_score
                     }
                 )
                 
@@ -360,17 +473,28 @@ class VideoComposer:
         """Download image from URL to local temp file."""
         
         try:
-            # Check if we already have a local path
-            if 'local_path' in image_data and os.path.exists(image_data['local_path']):
-                return image_data['local_path']
-            
-            # Get image URL (try multiple possible keys)
-            image_url = (
-                image_data.get('cdn_url') or 
-                image_data.get('url') or 
-                image_data.get('image_url') or
-                image_data.get('thumbnail_url')
-            )
+            # FIXED: Handle both ProcessedImage objects and dictionaries
+            if hasattr(image_data, 'processed_path'):  # ProcessedImage object
+                # Check if we already have a local path
+                local_path = getattr(image_data, 'processed_path', None)
+                if local_path and os.path.exists(local_path):
+                    return local_path
+                
+                # Get image URL from ProcessedImage object
+                image_url = getattr(image_data, 'original_url', '')
+                
+            else:  # Dictionary
+                # Check if we already have a local path
+                if 'local_path' in image_data and os.path.exists(image_data['local_path']):
+                    return image_data['local_path']
+                
+                # Get image URL (try multiple possible keys)
+                image_url = (
+                    image_data.get('cdn_url') or 
+                    image_data.get('url') or 
+                    image_data.get('image_url') or
+                    image_data.get('thumbnail_url')
+                )
             
             if not image_url:
                 logger.warning(f"No URL found in image data: {image_data}")
@@ -427,8 +551,8 @@ class VideoComposer:
         filter_graph = FilterGraph()
         
         if not overlay_assets:
-            # No overlays, just pass through
-            filter_graph.add_filter("[0:v]format=yuv420p[outv]")
+            # FIXED: No overlays, return empty filter graph (will be handled in _execute_composition)
+            logger.info("No overlay assets, returning empty filter graph")
             return filter_graph
         
         # Start with base video
@@ -603,7 +727,8 @@ class VideoComposer:
             # Track for cleanup
             self.downloaded_assets.append(str(subtitle_path))
             
-            return f"ass={subtitle_path}"
+            # FIXED: Return just the path, not "ass=" prefix to avoid over-escaping
+            return str(subtitle_path)
             
         except Exception as e:
             logger.warning(f"Failed to create caption filter: {e}")
@@ -681,35 +806,89 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Build filter complex
             filter_complex = filter_graph.build()
             
-            # Build FFmpeg stream
-            if filter_complex:
-                stream = ffmpeg.filter(inputs, 'complex', filter_complex)
-                video_stream = stream['outv']
-                audio_stream = inputs[0]['a']  # Use original audio
-            else:
-                # No overlays, pass through
+            # FIXED: Use filter_complex parameter directly instead of ffmpeg.filter() to avoid over-escaping
+            if overlay_assets and filter_complex:
+                # Use complex filter for overlays
+                logger.info(f"Using complex filter graph: {filter_complex}")
                 video_stream = inputs[0]['v']
                 audio_stream = inputs[0]['a']
-            
-            # Add captions if available
-            if caption_filter:
-                video_stream = video_stream.filter('subtitles', caption_filter)
-            
-            # Build output
-            output_stream = ffmpeg.output(
-                video_stream,
-                audio_stream,
-                output_path,
-                vcodec=self.config.output_codec,
-                acodec=self.config.audio_codec,
-                video_bitrate=self.config.output_bitrate,
-                audio_bitrate=self.config.audio_bitrate,
-                preset=self.config.preset,
-                crf=self.config.crf,
-                threads=self.config.threads,
-                movflags='faststart',  # Web optimization
-                pix_fmt='yuv420p'  # Compatibility
-            )
+                
+                # Add captions if available
+                if caption_filter:
+                    logger.info(f"Adding captions filter with file: {caption_filter}")
+                    
+                    # FIXED: Verify subtitle file exists before applying filter
+                    if not os.path.exists(caption_filter):
+                        logger.error(f"Subtitle file does not exist: {caption_filter}")
+                        raise CompositionError(f"Subtitle file not found: {caption_filter}", "subtitle_missing")
+                    
+                    try:
+                        # FIXED: Combine overlays and subtitles in filter_complex
+                        filter_complex += f";[outv]subtitles=filename={caption_filter}:force_style=yes[s1]"
+                        final_video_label = "s1"
+                        logger.info(f"Successfully added subtitle filter to complex filter")
+                    except Exception as subtitle_error:
+                        logger.error(f"Failed to add subtitle filter: {subtitle_error}")
+                        final_video_label = "outv"
+                        # Continue without subtitles instead of failing completely
+                else:
+                    final_video_label = "outv"
+                
+                # Build output with filter_complex parameter and explicit stream mapping
+                output_stream = ffmpeg.output(
+                    *inputs,
+                    output_path,
+                    filter_complex=filter_complex,
+                    vcodec=self.config.output_codec,
+                    acodec=self.config.audio_codec,
+                    video_bitrate=self.config.output_bitrate,
+                    audio_bitrate=self.config.audio_bitrate,
+                    preset=self.config.preset,
+                    crf=self.config.crf,
+                    threads=self.config.threads,
+                    movflags='faststart',  # Web optimization
+                    pix_fmt='yuv420p'  # Compatibility
+                ).global_args('-map', f'[{final_video_label}]', '-map', '0:a')
+                
+            else:
+                # No overlays, use simple pass-through
+                logger.info("No overlays detected, using simple pass-through")
+                video_stream = inputs[0]['v'].filter('format', 'yuv420p')
+                audio_stream = inputs[0]['a']
+                
+                # Add captions if available
+                if caption_filter:
+                    logger.info(f"Adding captions filter with file: {caption_filter}")
+                    
+                    # FIXED: Verify subtitle file exists before applying filter
+                    if not os.path.exists(caption_filter):
+                        logger.error(f"Subtitle file does not exist: {caption_filter}")
+                        raise CompositionError(f"Subtitle file not found: {caption_filter}", "subtitle_missing")
+                    
+                    try:
+                        # FIXED: Use proper ASS subtitle filter specification to avoid path escaping
+                        video_stream = video_stream.filter('subtitles', filename=caption_filter, force_style='yes')
+                        logger.info(f"Successfully applied subtitle filter for: {caption_filter}")
+                    except Exception as subtitle_error:
+                        logger.error(f"Failed to apply subtitle filter: {subtitle_error}")
+                        logger.info("Continuing without subtitles...")
+                        # Continue without subtitles instead of failing completely
+                
+                # Build output
+                output_stream = ffmpeg.output(
+                    video_stream,
+                    audio_stream,
+                    output_path,
+                    vcodec=self.config.output_codec,
+                    acodec=self.config.audio_codec,
+                    video_bitrate=self.config.output_bitrate,
+                    audio_bitrate=self.config.audio_bitrate,
+                    preset=self.config.preset,
+                    crf=self.config.crf,
+                    threads=self.config.threads,
+                    movflags='faststart',  # Web optimization
+                    pix_fmt='yuv420p'  # Compatibility
+                )
             
             # Execute FFmpeg command
             logger.info("Executing FFmpeg composition")

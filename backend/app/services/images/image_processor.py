@@ -171,7 +171,7 @@ class ImageProcessor:
                 async with session.get(image_url) as response:
                     if response.status == 200:
                         content_length = response.headers.get('content-length')
-                        if content_length and int(content_length) > 5 * 1024 * 1024:  # 5MB
+                        if content_length and int(content_length) > 50 * 1024 * 1024:  # 50MB (increased from 5MB)
                             logger.warning(f"Image too large: {content_length} bytes")
                             return None
                         
