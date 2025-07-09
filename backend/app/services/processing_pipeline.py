@@ -324,6 +324,9 @@ class ProcessingPipeline:
             # Calculate final metrics
             result = self._calculate_quality_metrics(result)
             
+            # CRITICAL FIX: Set the total processing time
+            result.processing_time = time.time() - start_time
+            
             # Save results
             await self._save_results(result, output_path)
             
@@ -707,6 +710,45 @@ class ProcessingPipeline:
                 logger.error(f"🏷️  Entity enrichment failed: {enrichment_error}")
                 logger.info(f"🏷️  Using non-enriched entities")
                 enriched_entities = entities  # Use original entities if enrichment fails
+            
+            # 🚨 CRITICAL FIX: Store entities to database if we have job_id and db_session
+            if self.job_id and self.db_session and enriched_entities:
+                logger.info(f"💾 Storing {len(enriched_entities)} enriched entities to database for job {self.job_id}")
+                try:
+                    from app.database.models import EnrichedEntity
+                    import uuid
+                    from datetime import datetime
+                    
+                    for entity in enriched_entities:
+                        # Create EnrichedEntity record
+                        db_entity = EnrichedEntity(
+                            id=str(uuid.uuid4()),
+                            job_id=self.job_id,
+                            text=getattr(entity, 'text', ''),
+                            normalized_text=getattr(entity, 'canonical_name', getattr(entity, 'text', '')).lower(),
+                            entity_type=getattr(entity, 'entity_type', 'UNKNOWN'),
+                            confidence=float(getattr(entity, 'confidence', 0.0)),
+                            start_char=getattr(entity, 'start_char', 0),
+                            end_char=getattr(entity, 'end_char', 0),
+                            description=f"Entity extracted from transcript: {getattr(entity, 'canonical_name', '')}",
+                            search_queries=getattr(entity, 'search_queries', []),
+                            emphasis_strength=getattr(entity, 'context_score', 0.0),
+                            created_at=datetime.utcnow()
+                        )
+                        
+                        self.db_session.add(db_entity)
+                        logger.info(f"💾 Added EnrichedEntity to database: {db_entity.text}")
+                    
+                    # Commit the database changes
+                    self.db_session.commit()
+                    logger.info(f"✅ Successfully stored {len(enriched_entities)} entities to database")
+                    
+                except Exception as e:
+                    import traceback
+                    logger.error(f"❌ Failed to store entities to database: {e}")
+                    logger.error(f"Full traceback: {traceback.format_exc()}")
+                    # Don't fail the whole pipeline if database storage fails
+                    pass
             
             logger.info(f"🏷️  FINAL RESULT: {len(entities)} entities, {len(enriched_entities)} enriched")
             return entities, enriched_entities

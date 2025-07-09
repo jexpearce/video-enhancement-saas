@@ -119,10 +119,13 @@ class AudioProcessor:
             }
             
             if video_stream:
+                # CRITICAL FIX: Safe frame rate parsing instead of dangerous eval()
+                fps = self._safe_parse_fps(video_stream.get('r_frame_rate', '30/1'))
+                
                 metadata.update({
                     'width': int(video_stream.get('width', 0)),
                     'height': int(video_stream.get('height', 0)),
-                    'fps': eval(video_stream.get('r_frame_rate', '30/1')),  # Convert fraction to float
+                    'fps': fps,
                     'video_codec': video_stream.get('codec_name', 'unknown')
                 })
             
@@ -139,6 +142,19 @@ class AudioProcessor:
         except Exception as e:
             logger.warning(f"Video probe failed: {str(e)}")
             return {'duration': 0, 'fps': 30}  # Default values
+    
+    def _safe_parse_fps(self, fps_string: str) -> float:
+        """Safely parse frame rate from FFmpeg fraction string."""
+        try:
+            # Handle common formats like "30/1", "29.97", "30000/1001"
+            if '/' in fps_string:
+                numerator, denominator = fps_string.split('/')
+                return float(numerator) / float(denominator)
+            else:
+                return float(fps_string)
+        except (ValueError, ZeroDivisionError):
+            logger.warning(f"Failed to parse fps '{fps_string}', using default 30.0")
+            return 30.0
     
     async def _extract_audio(self, video_path: str, video_info: Dict[str, Any]) -> str:
         """Extract audio from video using FFmpeg with optimal settings"""

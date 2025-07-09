@@ -485,19 +485,26 @@ class VideoComposer:
                 
             else:  # Dictionary
                 # Check if we already have a local path
-                if 'local_path' in image_data and os.path.exists(image_data['local_path']):
-                    return image_data['local_path']
+                local_path = image_data.get('local_path') or image_data.get('processed_path')
+                if local_path and os.path.exists(local_path):
+                    logger.debug(f"Using existing local path: {local_path}")
+                    return local_path
                 
-                # Get image URL (try multiple possible keys)
+                # FIXED: Get image URL (comprehensive field checking)
                 image_url = (
+                    image_data.get('original_url') or
                     image_data.get('cdn_url') or 
                     image_data.get('url') or 
                     image_data.get('image_url') or
                     image_data.get('thumbnail_url')
                 )
+                
+                # CRITICAL DEBUG: Log what we're looking for
+                logger.debug(f"🔍 Looking for image URL in: {list(image_data.keys())}")
+                logger.debug(f"🔍 Found image_url: {image_url}")
             
             if not image_url:
-                logger.warning(f"No URL found in image data: {image_data}")
+                logger.warning(f"No URL found in image data keys: {list(image_data.keys()) if isinstance(image_data, dict) else 'Not a dict'}")
                 return None
             
             # Generate local filename
@@ -551,12 +558,13 @@ class VideoComposer:
         filter_graph = FilterGraph()
         
         if not overlay_assets:
-            # FIXED: No overlays, return empty filter graph (will be handled in _execute_composition)
+            # No overlays, return empty filter graph
             logger.info("No overlay assets, returning empty filter graph")
             return filter_graph
         
         # Start with base video
-        current_label = "[0:v]"
+        current_video_label = "[0:v]"
+        all_filters = []
         
         # Add each overlay with its animation
         for i, asset in enumerate(overlay_assets):
@@ -572,7 +580,7 @@ class VideoComposer:
             
             # Create overlay filter with animation
             overlay_filter = self._create_overlay_filter(
-                current_label,
+                current_video_label,
                 overlay_input,
                 asset,
                 x,
@@ -580,12 +588,21 @@ class VideoComposer:
                 style
             )
             
-            # Output label for this stage
-            stage_output = f"[stage{i}]" if i < len(overlay_assets) - 1 else "[outv]"
+            # Add to filters list
+            all_filters.append(overlay_filter)
             
-            filter_graph.add_filter(f"{overlay_filter}{stage_output}")
-            current_label = stage_output
+            # Output label for this stage
+            if i < len(overlay_assets) - 1:
+                current_video_label = f"[stage{i}]"
+            else:
+                current_video_label = "[outv]"
         
+        # Join all filters and add to filter graph
+        if all_filters:
+            complete_filter = ";".join(all_filters)
+            filter_graph.add_filter(complete_filter)
+            
+        logger.info(f"Built filter graph with {len(all_filters)} overlay filters")
         return filter_graph
     
     def _create_overlay_filter(
@@ -599,41 +616,20 @@ class VideoComposer:
     ) -> str:
         """Create FFmpeg overlay filter with animation for a single asset."""
         
-        # Base overlay positioning
-        overlay_expr = f"overlay=x={x}:y={y}"
-        
-        # Add timing constraints
-        overlay_expr += f":enable='between(t,{asset.start_time},{asset.start_time + asset.duration})'"
-        
-        # Scale overlay image first
+        # Get size in pixels
         size_pixels = self._get_size_pixels(asset.size)
-        scale_filter = f"{overlay_input}scale={size_pixels}:-1"
         
-        # Add animation effects
-        if asset.animation_type == 'fade':
-            # Fade in/out animation
-            transition_duration = style.get('image_transition_duration', 0.5)
-            scale_filter += f",fade=t=in:st={asset.start_time}:d={transition_duration}"
-            scale_filter += f",fade=t=out:st={asset.start_time + asset.duration - transition_duration}:d={transition_duration}"
+        # CRITICAL FIX: Build proper FFmpeg filter chain
+        temp_label = f"scaled_{asset.asset_id}"
         
-        elif asset.animation_type == 'slide':
-            # Slide animation - modify x position over time
-            slide_distance = 100
-            start_x = x - slide_distance if 'right' in asset.position else x + slide_distance
-            overlay_expr = f"overlay=x='if(between(t,{asset.start_time},{asset.start_time + asset.duration}),{start_x}+({x}-{start_x})*min(1,(t-{asset.start_time})/{style.get('image_transition_duration', 0.5)}),{x})':y={y}"
-            overlay_expr += f":enable='between(t,{asset.start_time},{asset.start_time + asset.duration})'"
+        # Step 1: Scale the overlay image
+        scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
         
-        elif asset.animation_type == 'zoom':
-            # Zoom animation
-            transition_duration = style.get('image_transition_duration', 0.5)
-            scale_filter += f",scale='if(between(t,{asset.start_time},{asset.start_time + asset.duration}),{size_pixels}*(0.5+0.5*min(1,(t-{asset.start_time})/{transition_duration})),{size_pixels})':-1"
+        # Step 2: Apply the overlay with timing
+        overlay_filter = f"{base_input}[{temp_label}]overlay={x}:{y}:enable='between(t,{asset.start_time},{asset.start_time + asset.duration})'"
         
-        # Add Ken Burns effect if specified
-        if 'ken_burns' in asset.effects:
-            scale_filter += f",zoompan=z='min(zoom+0.001,1.2)':x='iw/2':y='ih/2':d={int(asset.duration * 30)}"
-        
-        # Combine scale and overlay
-        return f"{scale_filter}[overlay{asset.asset_id}];{base_input}[overlay{asset.asset_id}]{overlay_expr}"
+        # FIXED: Return proper filter chain format
+        return f"{scale_filter};{overlay_filter}"
     
     def _calculate_overlay_position(
         self,
@@ -803,38 +799,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for asset in overlay_assets:
                 inputs.append(ffmpeg.input(asset.local_path))
             
-            # Build filter complex
+            # Build filter complex string
             filter_complex = filter_graph.build()
             
-            # FIXED: Use filter_complex parameter directly instead of ffmpeg.filter() to avoid over-escaping
+            # FIXED: Handle three different scenarios properly
             if overlay_assets and filter_complex:
-                # Use complex filter for overlays
-                logger.info(f"Using complex filter graph: {filter_complex}")
-                video_stream = inputs[0]['v']
-                audio_stream = inputs[0]['a']
+                # Scenario 1: We have overlays - use complex filter
+                logger.info(f"Scenario 1: Using complex filter graph with {len(overlay_assets)} overlays")
+                logger.debug(f"Filter complex: {filter_complex}")
                 
-                # Add captions if available
-                if caption_filter:
-                    logger.info(f"Adding captions filter with file: {caption_filter}")
-                    
-                    # FIXED: Verify subtitle file exists before applying filter
-                    if not os.path.exists(caption_filter):
-                        logger.error(f"Subtitle file does not exist: {caption_filter}")
-                        raise CompositionError(f"Subtitle file not found: {caption_filter}", "subtitle_missing")
-                    
-                    try:
-                        # FIXED: Combine overlays and subtitles in filter_complex
-                        filter_complex += f";[outv]subtitles=filename={caption_filter}:force_style=yes[s1]"
-                        final_video_label = "s1"
-                        logger.info(f"Successfully added subtitle filter to complex filter")
-                    except Exception as subtitle_error:
-                        logger.error(f"Failed to add subtitle filter: {subtitle_error}")
-                        final_video_label = "outv"
-                        # Continue without subtitles instead of failing completely
+                # Handle captions by appending to filter_complex
+                if caption_filter and os.path.exists(caption_filter):
+                    # Escape the path properly for FFmpeg
+                    escaped_path = caption_filter.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
+                    filter_complex += f";[outv]subtitles='{escaped_path}':force_style=1[finalv]"
+                    final_video_label = "finalv"
+                    logger.info(f"Added captions to filter complex")
                 else:
                     final_video_label = "outv"
                 
-                # Build output with filter_complex parameter and explicit stream mapping
+                # Build output with filter_complex and explicit mapping
                 output_stream = ffmpeg.output(
                     *inputs,
                     output_path,
@@ -846,33 +830,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     preset=self.config.preset,
                     crf=self.config.crf,
                     threads=self.config.threads,
-                    movflags='faststart',  # Web optimization
-                    pix_fmt='yuv420p'  # Compatibility
+                    movflags='faststart',
+                    pix_fmt='yuv420p'
                 ).global_args('-map', f'[{final_video_label}]', '-map', '0:a')
                 
-            else:
-                # No overlays, use simple pass-through
-                logger.info("No overlays detected, using simple pass-through")
-                video_stream = inputs[0]['v'].filter('format', 'yuv420p')
+            elif caption_filter and os.path.exists(caption_filter):
+                # Scenario 2: No overlays but we have captions
+                logger.info("Scenario 2: No overlays, but adding captions using simple filter")
+                
+                # Use simple filter chain for captions only
+                video_stream = inputs[0]['v']
                 audio_stream = inputs[0]['a']
                 
-                # Add captions if available
-                if caption_filter:
-                    logger.info(f"Adding captions filter with file: {caption_filter}")
-                    
-                    # FIXED: Verify subtitle file exists before applying filter
-                    if not os.path.exists(caption_filter):
-                        logger.error(f"Subtitle file does not exist: {caption_filter}")
-                        raise CompositionError(f"Subtitle file not found: {caption_filter}", "subtitle_missing")
-                    
-                    try:
-                        # FIXED: Use proper ASS subtitle filter specification to avoid path escaping
-                        video_stream = video_stream.filter('subtitles', filename=caption_filter, force_style='yes')
-                        logger.info(f"Successfully applied subtitle filter for: {caption_filter}")
-                    except Exception as subtitle_error:
-                        logger.error(f"Failed to apply subtitle filter: {subtitle_error}")
-                        logger.info("Continuing without subtitles...")
-                        # Continue without subtitles instead of failing completely
+                # Apply subtitles filter
+                video_stream = video_stream.filter('subtitles', filename=caption_filter, force_style=1)
+                video_stream = video_stream.filter('format', 'yuv420p')
                 
                 # Build output
                 output_stream = ffmpeg.output(
@@ -886,8 +858,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     preset=self.config.preset,
                     crf=self.config.crf,
                     threads=self.config.threads,
-                    movflags='faststart',  # Web optimization
-                    pix_fmt='yuv420p'  # Compatibility
+                    movflags='faststart',
+                    pix_fmt='yuv420p'
+                )
+                
+            else:
+                # Scenario 3: No overlays and no captions - simple pass-through
+                logger.info("Scenario 3: No overlays or captions, using simple pass-through")
+                
+                video_stream = inputs[0]['v'].filter('format', 'yuv420p')
+                audio_stream = inputs[0]['a']
+                
+                # Build output
+                output_stream = ffmpeg.output(
+                    video_stream,
+                    audio_stream,
+                    output_path,
+                    vcodec=self.config.output_codec,
+                    acodec=self.config.audio_codec,
+                    video_bitrate=self.config.output_bitrate,
+                    audio_bitrate=self.config.audio_bitrate,
+                    preset=self.config.preset,
+                    crf=self.config.crf,
+                    threads=self.config.threads,
+                    movflags='faststart',
+                    pix_fmt='yuv420p'
                 )
             
             # Execute FFmpeg command
@@ -897,10 +892,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             logger.debug(f"FFmpeg command: {command_str}")
             
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: ffmpeg.run(output_stream, overwrite_output=True, quiet=False)
-            )
+            # Execute with proper error handling
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: ffmpeg.run(output_stream, overwrite_output=True, quiet=False)
+                )
+                logger.info("FFmpeg composition completed successfully")
+            except ffmpeg.Error as ffmpeg_error:
+                # Log the actual FFmpeg error details
+                stderr = ffmpeg_error.stderr.decode() if ffmpeg_error.stderr else "No stderr"
+                logger.error(f"FFmpeg execution failed with stderr: {stderr}")
+                logger.error(f"FFmpeg command was: {command_str}")
+                raise ffmpeg_error
             
             return command_str
             
@@ -931,10 +935,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             }
             
             if video_stream:
+                # CRITICAL FIX: Safe frame rate parsing instead of dangerous eval()
+                fps_string = video_stream.get('r_frame_rate', '30/1')
+                try:
+                    if '/' in fps_string:
+                        numerator, denominator = fps_string.split('/')
+                        fps = float(numerator) / float(denominator)
+                    else:
+                        fps = float(fps_string)
+                except (ValueError, ZeroDivisionError):
+                    fps = 30.0
+                
                 metadata.update({
                     'width': int(video_stream.get('width', 0)),
                     'height': int(video_stream.get('height', 0)),
-                    'fps': eval(video_stream.get('r_frame_rate', '30/1')),
+                    'fps': fps,
                     'video_codec': video_stream.get('codec_name', 'unknown')
                 })
             
