@@ -562,9 +562,9 @@ class VideoComposer:
             logger.info("No overlay assets, returning empty filter graph")
             return filter_graph
         
-        # Start with base video
+        # CRITICAL FIX: Build proper filter chain
+        all_filter_parts = []
         current_video_label = "[0:v]"
-        all_filters = []
         
         # Add each overlay with its animation
         for i, asset in enumerate(overlay_assets):
@@ -578,31 +578,34 @@ class VideoComposer:
             # Input label for this overlay image
             overlay_input = f"[{i + 1}:v]"
             
-            # Create overlay filter with animation
-            overlay_filter = self._create_overlay_filter(
-                current_video_label,
-                overlay_input,
-                asset,
-                x,
-                y,
-                style
-            )
-            
-            # Add to filters list
-            all_filters.append(overlay_filter)
-            
             # Output label for this stage
             if i < len(overlay_assets) - 1:
-                current_video_label = f"[stage{i}]"
+                next_video_label = f"[stage{i}]"
             else:
-                current_video_label = "[outv]"
-        
-        # Join all filters and add to filter graph
-        if all_filters:
-            complete_filter = ";".join(all_filters)
-            filter_graph.add_filter(complete_filter)
+                next_video_label = "[outv]"
             
-        logger.info(f"Built filter graph with {len(all_filters)} overlay filters")
+            # Get size in pixels
+            size_pixels = self._get_size_pixels(asset.size)
+            temp_label = f"scaled_{asset.asset_id}"
+            
+            # Build filter parts for this overlay
+            scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
+            overlay_filter = f"{current_video_label}[{temp_label}]overlay={x}:{y}:enable='between(t,{asset.start_time},{asset.start_time + asset.duration})'{next_video_label}"
+            
+            # Add to filter parts
+            all_filter_parts.append(scale_filter)
+            all_filter_parts.append(overlay_filter)
+            
+            # Update current label for next iteration
+            current_video_label = next_video_label
+        
+        # Join all filter parts and add to filter graph
+        if all_filter_parts:
+            complete_filter = ";".join(all_filter_parts)
+            filter_graph.add_filter(complete_filter)
+            logger.info(f"Built filter graph with {len(overlay_assets)} overlays")
+            logger.debug(f"Filter graph: {complete_filter}")
+        
         return filter_graph
     
     def _create_overlay_filter(

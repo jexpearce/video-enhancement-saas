@@ -1,0 +1,123 @@
+INFO:     Will watch for changes in these directories: ['/Users/jexpearce/video-enhancement-saas/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [73764] using WatchFiles
+/Users/jexpearce/Library/Python/3.9/lib/python/site-packages/pydantic/_internal/_fields.py:149: UserWarning: Field "model_version" has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+INFO:     Started server process [73771]
+INFO:     Waiting for application startup.
+INFO:app.main:Starting Video Enhancement SaaS API...
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine SELECT 1
+INFO:sqlalchemy.engine.Engine:SELECT 1
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine [generated in 0.00009s] ()
+INFO:sqlalchemy.engine.Engine:[generated in 0.00009s] ()
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:sqlalchemy.engine.Engine:ROLLBACK
+INFO:app.database.connection:Database connection successful
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:27,104 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("processing_jobs")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("processing_jobs")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("stored_images")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("stored_images")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("enriched_entities")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("enriched_entities")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("emphasis_points")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("emphasis_points")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("user_preferences")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("user_preferences")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("api_usage")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("api_usage")
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-09 13:15:27,105 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+INFO:app.database.connection:Database tables created successfully
+INFO:app.main:Database initialized successfully
+INFO:app.main:=== API Key Setup ===
+INFO:app.main:# Add these to your .env file for testing:
+INFO:app.main:ADMIN_API_KEY=vea_00aab93d3594eaa0a5fb4e45c42b414c814a2ecef0436bb96eae20af0b5a5329
+INFO:app.main:# Demo API keys (for testing):
+INFO:app.main:# demo_user_1: vea_3341714730dd8e87d0acbc0c5f502b1290628a59081d9e402795169f05e90611
+INFO:app.main:# demo_user_2: vea_8158a67cfcca4803104610ca9a5bc063eb1939f2839d39f81ee465763c63b455
+INFO:app.main:# demo_user_3: vea_dad1409e41b75f617b2def8898cd9af6700034a21284a37a2aacb53a8dbcd513
+INFO:app.main:# Usage examples:
+INFO:app.main:# curl -H "Authorization: Bearer vea_00aab93d3594eaa0a5fb4e45c42b414c814a2ecef0436bb96eae20af0b5a5329" http://localhost:8000/api/v1/health/detailed
+INFO:app.main:# curl -H "Authorization: Bearer vea_3341714730dd8e87d0acbc0c5f502b1290628a59081d9e402795169f05e90611" http://localhost:8000/api/v1/jobs
+INFO:app.main:======================
+INFO:app.main:API startup completed successfully
+INFO:     Application startup complete.
+INFO:     127.0.0.1:49775 - "HEAD /docs HTTP/1.1" 200 OK
+INFO:app.api.v1.videos:Upload attempt - filename: 50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV, content_type: application/octet-stream, user_id: test_fixed, target_platform: tiktok
+INFO:app.api.v1.videos:Using extension-based MIME type for 50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV: video/quicktime
+2025-07-09 13:15:40,943 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:40,945 INFO sqlalchemy.engine.Engine INSERT INTO processing_jobs (id, user_id, status, progress, original_video_url, original_video_hash, file_size_bytes, video_duration_seconds, video_format, target_platform, created_at, started_at, completed_at, updated_at, transcript, final_video_url, manifest_url, error_message, retry_count, processing_time_seconds, audio_enhancement_time, transcription_time, emphasis_detection_time, entity_extraction_time, image_search_time, image_processing_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at
+INFO:sqlalchemy.engine.Engine:INSERT INTO processing_jobs (id, user_id, status, progress, original_video_url, original_video_hash, file_size_bytes, video_duration_seconds, video_format, target_platform, created_at, started_at, completed_at, updated_at, transcript, final_video_url, manifest_url, error_message, retry_count, processing_time_seconds, audio_enhancement_time, transcription_time, emphasis_detection_time, entity_extraction_time, image_search_time, image_processing_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at
+2025-07-09 13:15:40,945 INFO sqlalchemy.engine.Engine [generated in 0.00032s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce', 'test_fixed', 'pending', 0, '/tmp/video_enhancement/50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV', '50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314', 29601999, None, 'application/octet-stream', 'tiktok', None, None, None, None, None, None, 0, None, None, None, None, None, None, None)
+INFO:sqlalchemy.engine.Engine:[generated in 0.00032s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce', 'test_fixed', 'pending', 0, '/tmp/video_enhancement/50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV', '50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314', 29601999, None, 'application/octet-stream', 'tiktok', None, None, None, None, None, None, 0, None, None, None, None, None, None, None)
+2025-07-09 13:15:40,948 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+2025-07-09 13:15:40,948 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:40,949 INFO sqlalchemy.engine.Engine SELECT processing_jobs.id, processing_jobs.user_id, processing_jobs.status, processing_jobs.progress, processing_jobs.original_video_url, processing_jobs.original_video_hash, processing_jobs.file_size_bytes, processing_jobs.video_duration_seconds, processing_jobs.video_format, processing_jobs.target_platform, processing_jobs.processing_options, processing_jobs.created_at, processing_jobs.started_at, processing_jobs.completed_at, processing_jobs.updated_at, processing_jobs.transcript, processing_jobs.emphasis_points, processing_jobs.detected_entities, processing_jobs.applied_style, processing_jobs.final_video_url, processing_jobs.manifest_url, processing_jobs.error_message, processing_jobs.retry_count, processing_jobs.processing_time_seconds, processing_jobs.audio_enhancement_time, processing_jobs.transcription_time, processing_jobs.emphasis_detection_time, processing_jobs.entity_extraction_time, processing_jobs.image_search_time, processing_jobs.image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+INFO:sqlalchemy.engine.Engine:SELECT processing_jobs.id, processing_jobs.user_id, processing_jobs.status, processing_jobs.progress, processing_jobs.original_video_url, processing_jobs.original_video_hash, processing_jobs.file_size_bytes, processing_jobs.video_duration_seconds, processing_jobs.video_format, processing_jobs.target_platform, processing_jobs.processing_options, processing_jobs.created_at, processing_jobs.started_at, processing_jobs.completed_at, processing_jobs.updated_at, processing_jobs.transcript, processing_jobs.emphasis_points, processing_jobs.detected_entities, processing_jobs.applied_style, processing_jobs.final_video_url, processing_jobs.manifest_url, processing_jobs.error_message, processing_jobs.retry_count, processing_jobs.processing_time_seconds, processing_jobs.audio_enhancement_time, processing_jobs.transcription_time, processing_jobs.emphasis_detection_time, processing_jobs.entity_extraction_time, processing_jobs.image_search_time, processing_jobs.image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+2025-07-09 13:15:40,949 INFO sqlalchemy.engine.Engine [generated in 0.00006s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce',)
+INFO:sqlalchemy.engine.Engine:[generated in 0.00006s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce',)
+INFO:app.api.v1.videos:Created processing job: b33f4712-84ab-4bf0-b0be-2fb9ac2393ce
+INFO:     127.0.0.1:49777 - "POST /api/v1/videos/upload?target_platform=tiktok&user_id=test_fixed HTTP/1.1" 200 OK
+2025-07-09 13:15:40,950 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:40,951 INFO sqlalchemy.engine.Engine SELECT processing_jobs.id AS processing_jobs_id, processing_jobs.user_id AS processing_jobs_user_id, processing_jobs.status AS processing_jobs_status, processing_jobs.progress AS processing_jobs_progress, processing_jobs.original_video_url AS processing_jobs_original_video_url, processing_jobs.original_video_hash AS processing_jobs_original_video_hash, processing_jobs.file_size_bytes AS processing_jobs_file_size_bytes, processing_jobs.video_duration_seconds AS processing_jobs_video_duration_seconds, processing_jobs.video_format AS processing_jobs_video_format, processing_jobs.target_platform AS processing_jobs_target_platform, processing_jobs.processing_options AS processing_jobs_processing_options, processing_jobs.created_at AS processing_jobs_created_at, processing_jobs.started_at AS processing_jobs_started_at, processing_jobs.completed_at AS processing_jobs_completed_at, processing_jobs.updated_at AS processing_jobs_updated_at, processing_jobs.transcript AS processing_jobs_transcript, processing_jobs.emphasis_points AS processing_jobs_emphasis_points, processing_jobs.detected_entities AS processing_jobs_detected_entities, processing_jobs.applied_style AS processing_jobs_applied_style, processing_jobs.final_video_url AS processing_jobs_final_video_url, processing_jobs.manifest_url AS processing_jobs_manifest_url, processing_jobs.error_message AS processing_jobs_error_message, processing_jobs.retry_count AS processing_jobs_retry_count, processing_jobs.processing_time_seconds AS processing_jobs_processing_time_seconds, processing_jobs.audio_enhancement_time AS processing_jobs_audio_enhancement_time, processing_jobs.transcription_time AS processing_jobs_transcription_time, processing_jobs.emphasis_detection_time AS processing_jobs_emphasis_detection_time, processing_jobs.entity_extraction_time AS processing_jobs_entity_extraction_time, processing_jobs.image_search_time AS processing_jobs_image_search_time, processing_jobs.image_processing_time AS processing_jobs_image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+ LIMIT ? OFFSET ?
+INFO:sqlalchemy.engine.Engine:SELECT processing_jobs.id AS processing_jobs_id, processing_jobs.user_id AS processing_jobs_user_id, processing_jobs.status AS processing_jobs_status, processing_jobs.progress AS processing_jobs_progress, processing_jobs.original_video_url AS processing_jobs_original_video_url, processing_jobs.original_video_hash AS processing_jobs_original_video_hash, processing_jobs.file_size_bytes AS processing_jobs_file_size_bytes, processing_jobs.video_duration_seconds AS processing_jobs_video_duration_seconds, processing_jobs.video_format AS processing_jobs_video_format, processing_jobs.target_platform AS processing_jobs_target_platform, processing_jobs.processing_options AS processing_jobs_processing_options, processing_jobs.created_at AS processing_jobs_created_at, processing_jobs.started_at AS processing_jobs_started_at, processing_jobs.completed_at AS processing_jobs_completed_at, processing_jobs.updated_at AS processing_jobs_updated_at, processing_jobs.transcript AS processing_jobs_transcript, processing_jobs.emphasis_points AS processing_jobs_emphasis_points, processing_jobs.detected_entities AS processing_jobs_detected_entities, processing_jobs.applied_style AS processing_jobs_applied_style, processing_jobs.final_video_url AS processing_jobs_final_video_url, processing_jobs.manifest_url AS processing_jobs_manifest_url, processing_jobs.error_message AS processing_jobs_error_message, processing_jobs.retry_count AS processing_jobs_retry_count, processing_jobs.processing_time_seconds AS processing_jobs_processing_time_seconds, processing_jobs.audio_enhancement_time AS processing_jobs_audio_enhancement_time, processing_jobs.transcription_time AS processing_jobs_transcription_time, processing_jobs.emphasis_detection_time AS processing_jobs_emphasis_detection_time, processing_jobs.entity_extraction_time AS processing_jobs_entity_extraction_time, processing_jobs.image_search_time AS processing_jobs_image_search_time, processing_jobs.image_processing_time AS processing_jobs_image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+ LIMIT ? OFFSET ?
+2025-07-09 13:15:40,951 INFO sqlalchemy.engine.Engine [generated in 0.00006s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce', 1, 0)
+INFO:sqlalchemy.engine.Engine:[generated in 0.00006s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce', 1, 0)
+2025-07-09 13:15:40,952 INFO sqlalchemy.engine.Engine UPDATE processing_jobs SET status=?, updated_at=CURRENT_TIMESTAMP WHERE processing_jobs.id = ?
+INFO:sqlalchemy.engine.Engine:UPDATE processing_jobs SET status=?, updated_at=CURRENT_TIMESTAMP WHERE processing_jobs.id = ?
+2025-07-09 13:15:40,952 INFO sqlalchemy.engine.Engine [generated in 0.00004s] ('processing', 'b33f4712-84ab-4bf0-b0be-2fb9ac2393ce')
+INFO:sqlalchemy.engine.Engine:[generated in 0.00004s] ('processing', 'b33f4712-84ab-4bf0-b0be-2fb9ac2393ce')
+2025-07-09 13:15:40,952 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+INFO:app.api.v1.videos:Starting video processing for job: b33f4712-84ab-4bf0-b0be-2fb9ac2393ce
+INFO:app.services.transcription.whisper_service:Loading Whisper model 'base' on cpu
+INFO:app.services.transcription.whisper_service:Whisper model loaded successfully
+INFO:app.services.nlp.entity_recognizer:Loaded spaCy model: en_core_web_sm
+INFO:app.services.images.image_searcher:Unsplash provider initialized successfully
+2025-07-09 13:15:41,840 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-09 13:15:41,840 INFO sqlalchemy.engine.Engine SELECT processing_jobs.id AS processing_jobs_id, processing_jobs.user_id AS processing_jobs_user_id, processing_jobs.status AS processing_jobs_status, processing_jobs.progress AS processing_jobs_progress, processing_jobs.original_video_url AS processing_jobs_original_video_url, processing_jobs.original_video_hash AS processing_jobs_original_video_hash, processing_jobs.file_size_bytes AS processing_jobs_file_size_bytes, processing_jobs.video_duration_seconds AS processing_jobs_video_duration_seconds, processing_jobs.video_format AS processing_jobs_video_format, processing_jobs.target_platform AS processing_jobs_target_platform, processing_jobs.processing_options AS processing_jobs_processing_options, processing_jobs.created_at AS processing_jobs_created_at, processing_jobs.started_at AS processing_jobs_started_at, processing_jobs.completed_at AS processing_jobs_completed_at, processing_jobs.updated_at AS processing_jobs_updated_at, processing_jobs.transcript AS processing_jobs_transcript, processing_jobs.emphasis_points AS processing_jobs_emphasis_points, processing_jobs.detected_entities AS processing_jobs_detected_entities, processing_jobs.applied_style AS processing_jobs_applied_style, processing_jobs.final_video_url AS processing_jobs_final_video_url, processing_jobs.manifest_url AS processing_jobs_manifest_url, processing_jobs.error_message AS processing_jobs_error_message, processing_jobs.retry_count AS processing_jobs_retry_count, processing_jobs.processing_time_seconds AS processing_jobs_processing_time_seconds, processing_jobs.audio_enhancement_time AS processing_jobs_audio_enhancement_time, processing_jobs.transcription_time AS processing_jobs_transcription_time, processing_jobs.emphasis_detection_time AS processing_jobs_emphasis_detection_time, processing_jobs.entity_extraction_time AS processing_jobs_entity_extraction_time, processing_jobs.image_search_time AS processing_jobs_image_search_time, processing_jobs.image_processing_time AS processing_jobs_image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+INFO:sqlalchemy.engine.Engine:SELECT processing_jobs.id AS processing_jobs_id, processing_jobs.user_id AS processing_jobs_user_id, processing_jobs.status AS processing_jobs_status, processing_jobs.progress AS processing_jobs_progress, processing_jobs.original_video_url AS processing_jobs_original_video_url, processing_jobs.original_video_hash AS processing_jobs_original_video_hash, processing_jobs.file_size_bytes AS processing_jobs_file_size_bytes, processing_jobs.video_duration_seconds AS processing_jobs_video_duration_seconds, processing_jobs.video_format AS processing_jobs_video_format, processing_jobs.target_platform AS processing_jobs_target_platform, processing_jobs.processing_options AS processing_jobs_processing_options, processing_jobs.created_at AS processing_jobs_created_at, processing_jobs.started_at AS processing_jobs_started_at, processing_jobs.completed_at AS processing_jobs_completed_at, processing_jobs.updated_at AS processing_jobs_updated_at, processing_jobs.transcript AS processing_jobs_transcript, processing_jobs.emphasis_points AS processing_jobs_emphasis_points, processing_jobs.detected_entities AS processing_jobs_detected_entities, processing_jobs.applied_style AS processing_jobs_applied_style, processing_jobs.final_video_url AS processing_jobs_final_video_url, processing_jobs.manifest_url AS processing_jobs_manifest_url, processing_jobs.error_message AS processing_jobs_error_message, processing_jobs.retry_count AS processing_jobs_retry_count, processing_jobs.processing_time_seconds AS processing_jobs_processing_time_seconds, processing_jobs.audio_enhancement_time AS processing_jobs_audio_enhancement_time, processing_jobs.transcription_time AS processing_jobs_transcription_time, processing_jobs.emphasis_detection_time AS processing_jobs_emphasis_detection_time, processing_jobs.entity_extraction_time AS processing_jobs_entity_extraction_time, processing_jobs.image_search_time AS processing_jobs_image_search_time, processing_jobs.image_processing_time AS processing_jobs_image_processing_time 
+FROM processing_jobs 
+WHERE processing_jobs.id = ?
+2025-07-09 13:15:41,840 INFO sqlalchemy.engine.Engine [generated in 0.00008s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce',)
+INFO:sqlalchemy.engine.Engine:[generated in 0.00008s] ('b33f4712-84ab-4bf0-b0be-2fb9ac2393ce',)
+INFO:app.services.processing_pipeline:Starting video processing pipeline for: /tmp/video_enhancement/50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV
+INFO:app.services.processing_pipeline:Step 1: Audio extraction and enhancement
+INFO:app.services.processing_pipeline:Audio processing step: analyzing video file /tmp/video_enhancement/50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV
+INFO:app.services.audio.processor:Starting audio processing for: /tmp/video_enhancement/50e5cd9b87c56558ffedcf1fe1c96c9d8066c17a95294f260c5e6fce7d0d8314.MOV
+INFO:app.services.audio.processor:Video info: {'duration': 11.181678, 'size': 29601999, 'bitrate': 21178931, 'width': 1920, 'height': 1080, 'fps': 60.0, 'video_codec': 'hevc', 'audio_codec': 'aac', 'sample_rate': 44100, 'channels': 2, 'audio_bitrate': 177687}
