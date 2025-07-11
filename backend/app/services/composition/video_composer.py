@@ -18,6 +18,7 @@ import hashlib
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 import json
+import subprocess
 
 import ffmpeg
 import aiohttp
@@ -414,9 +415,21 @@ class VideoComposer:
                             break
                 
                 if not matching_image:
-                    logger.warning(f"❌ No matching image found for target_id: {image_id}")
-                    logger.warning(f"❌ Available image IDs: {[getattr(img, 'cache_key', 'no_cache_key') if hasattr(img, 'cache_key') else img.get('image_id', img.get('id', 'no_id')) for img in curated_images]}")
-                    continue
+                    logger.warning(
+                        f"❌ No matching image found for target_id: {image_id}"
+                    )
+                    logger.warning(
+                        f"❌ Available image IDs: {[getattr(img, 'cache_key', 'no_cache_key') if hasattr(img, 'cache_key') else img.get('image_id', img.get('id', 'no_id')) for img in curated_images]}"
+                    )
+
+                    # Fallback: use the first curated image if available
+                    if curated_images:
+                        matching_image = curated_images[0]
+                        logger.info(
+                            f"🔧 Fallback: using first available image {getattr(matching_image, 'cache_key', getattr(matching_image, 'id', 'no_id'))}"
+                        )
+                    else:
+                        continue
                 
                 # Download image to local temp file
                 local_path = await self._download_image_asset(matching_image)
@@ -545,6 +558,11 @@ class VideoComposer:
         except:
             pass
         return None
+
+    def _sanitize_label(self, value: str) -> str:
+        """Sanitize a string for use as an FFmpeg label."""
+        import re
+        return re.sub(r"[^A-Za-z0-9]", "", value)
     
     async def _build_filter_graph(
         self,
@@ -586,7 +604,8 @@ class VideoComposer:
             
             # Get size in pixels
             size_pixels = self._get_size_pixels(asset.size)
-            temp_label = f"scaled_{asset.asset_id}"
+            safe_id = self._sanitize_label(asset.asset_id)
+            temp_label = f"scaled_{safe_id}"
             
             # Build filter parts for this overlay
             scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
@@ -623,7 +642,8 @@ class VideoComposer:
         size_pixels = self._get_size_pixels(asset.size)
         
         # CRITICAL FIX: Build proper FFmpeg filter chain
-        temp_label = f"scaled_{asset.asset_id}"
+        safe_id = self._sanitize_label(asset.asset_id)
+        temp_label = f"scaled_{safe_id}"
         
         # Step 1: Scale the overlay image
         scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
@@ -795,120 +815,63 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """Execute FFmpeg composition command."""
         
         try:
-            # Build input streams
-            inputs = [ffmpeg.input(input_video)]
-            
-            # Add overlay images as inputs
+            cmd = ['ffmpeg', '-y', '-i', input_video]
             for asset in overlay_assets:
-                inputs.append(ffmpeg.input(asset.local_path))
-            
-            # Build filter complex string
+                cmd.extend(['-i', asset.local_path])
+
             filter_complex = filter_graph.build()
-            
-            # FIXED: Handle three different scenarios properly
+            final_video_label = 'outv'
+
             if overlay_assets and filter_complex:
-                # Scenario 1: We have overlays - use complex filter
                 logger.info(f"Scenario 1: Using complex filter graph with {len(overlay_assets)} overlays")
                 logger.debug(f"Filter complex: {filter_complex}")
-                
-                # Handle captions by appending to filter_complex
+
                 if caption_filter and os.path.exists(caption_filter):
-                    # Escape the path properly for FFmpeg
-                    escaped_path = caption_filter.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
-                    filter_complex += f";[outv]subtitles='{escaped_path}':force_style=1[finalv]"
-                    final_video_label = "finalv"
-                    logger.info(f"Added captions to filter complex")
-                else:
-                    final_video_label = "outv"
-                
-                # Build output with filter_complex and explicit mapping
-                output_stream = ffmpeg.output(
-                    *inputs,
-                    output_path,
-                    filter_complex=filter_complex,
-                    vcodec=self.config.output_codec,
-                    acodec=self.config.audio_codec,
-                    video_bitrate=self.config.output_bitrate,
-                    audio_bitrate=self.config.audio_bitrate,
-                    preset=self.config.preset,
-                    crf=self.config.crf,
-                    threads=self.config.threads,
-                    movflags='faststart',
-                    pix_fmt='yuv420p'
-                ).global_args('-map', f'[{final_video_label}]', '-map', '0:a')
-                
+                    escaped = caption_filter.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
+                    filter_complex += f";[outv]subtitles='{escaped}':force_style=1[finalv]"
+                    final_video_label = 'finalv'
+                    logger.info("Added captions to filter complex")
+
+                cmd += ['-filter_complex', filter_complex, '-map', f'[{final_video_label}]', '-map', '0:a']
+
             elif caption_filter and os.path.exists(caption_filter):
-                # Scenario 2: No overlays but we have captions
-                logger.info("Scenario 2: No overlays, but adding captions using simple filter")
-                
-                # Use simple filter chain for captions only
-                video_stream = inputs[0]['v']
-                audio_stream = inputs[0]['a']
-                
-                # Apply subtitles filter
-                video_stream = video_stream.filter('subtitles', filename=caption_filter, force_style=1)
-                video_stream = video_stream.filter('format', 'yuv420p')
-                
-                # Build output
-                output_stream = ffmpeg.output(
-                    video_stream,
-                    audio_stream,
-                    output_path,
-                    vcodec=self.config.output_codec,
-                    acodec=self.config.audio_codec,
-                    video_bitrate=self.config.output_bitrate,
-                    audio_bitrate=self.config.audio_bitrate,
-                    preset=self.config.preset,
-                    crf=self.config.crf,
-                    threads=self.config.threads,
-                    movflags='faststart',
-                    pix_fmt='yuv420p'
-                )
-                
+                logger.info("Scenario 2: No overlays, captions only")
+                cmd += [
+                    '-vf', f"subtitles={caption_filter}:force_style=1,format=yuv420p",
+                    '-map', '0:v', '-map', '0:a'
+                ]
             else:
-                # Scenario 3: No overlays and no captions - simple pass-through
-                logger.info("Scenario 3: No overlays or captions, using simple pass-through")
-                
-                video_stream = inputs[0]['v'].filter('format', 'yuv420p')
-                audio_stream = inputs[0]['a']
-                
-                # Build output
-                output_stream = ffmpeg.output(
-                    video_stream,
-                    audio_stream,
-                    output_path,
-                    vcodec=self.config.output_codec,
-                    acodec=self.config.audio_codec,
-                    video_bitrate=self.config.output_bitrate,
-                    audio_bitrate=self.config.audio_bitrate,
-                    preset=self.config.preset,
-                    crf=self.config.crf,
-                    threads=self.config.threads,
-                    movflags='faststart',
-                    pix_fmt='yuv420p'
-                )
-            
-            # Execute FFmpeg command
-            logger.info("Executing FFmpeg composition")
-            command_args = ffmpeg.compile(output_stream)
-            command_str = ' '.join(command_args)
-            
+                logger.info("Scenario 3: Simple pass-through")
+                cmd += ['-map', '0:v', '-map', '0:a']
+
+            cmd += [
+                '-c:v', self.config.output_codec,
+                '-c:a', self.config.audio_codec,
+                '-b:v', self.config.output_bitrate,
+                '-b:a', self.config.audio_bitrate,
+                '-preset', self.config.preset,
+                '-crf', str(self.config.crf),
+                '-threads', str(self.config.threads),
+                '-movflags', 'faststart',
+                '-pix_fmt', 'yuv420p',
+                output_path
+            ]
+
+            command_str = ' '.join(cmd)
             logger.debug(f"FFmpeg command: {command_str}")
-            
-            # Execute with proper error handling
-            try:
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: ffmpeg.run(output_stream, overwrite_output=True, quiet=False)
-                )
-                logger.info("FFmpeg composition completed successfully")
-            except ffmpeg.Error as ffmpeg_error:
-                # Log the actual FFmpeg error details
-                stderr = ffmpeg_error.stderr.decode() if ffmpeg_error.stderr else "No stderr"
-                logger.error(f"FFmpeg execution failed with stderr: {stderr}")
-                logger.error(f"FFmpeg command was: {command_str}")
-                raise ffmpeg_error
-            
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                logger.error(f"FFmpeg failed with code {process.returncode}")
+                logger.error(stderr.decode())
+                raise FFmpegError("FFmpeg execution failed", command=command_str, stderr=stderr.decode())
+
+            logger.info("FFmpeg composition completed successfully")
             return command_str
             
         except ffmpeg.Error as e:
@@ -989,9 +952,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             }
             
             if video_stream:
+                fps_string = video_stream.get('r_frame_rate', '30/1')
+                try:
+                    if '/' in fps_string:
+                        numerator, denominator = fps_string.split('/')
+                        fps = float(numerator) / float(denominator)
+                    else:
+                        fps = float(fps_string)
+                except (ValueError, ZeroDivisionError):
+                    fps = 30.0
+
                 stats.update({
                     'resolution': (int(video_stream.get('width', 0)), int(video_stream.get('height', 0))),
-                    'fps': eval(video_stream.get('r_frame_rate', '30/1'))
+                    'fps': fps
                 })
             
             return stats

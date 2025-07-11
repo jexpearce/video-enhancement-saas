@@ -234,9 +234,9 @@ class TestMultiSourceRetriever:
         
         # Add provider that raises exceptions
         failing_provider = MockImageProvider("failing")
-        
-                 async def failing_search(query: str, count: int = 10):
-             raise Exception("Provider error")
+
+        async def failing_search(query: str, count: int = 10):
+            raise Exception("Provider error")
             
         failing_provider.search = failing_search
         retriever.add_provider(failing_provider, weight=1.0)
