@@ -37,11 +37,24 @@ class ContentMatcher:
         self.max_duration = 8.0
         self.default_duration = 3.5
         
-    async def match_images_to_video(self, 
-                                   video_segments: List[VideoSegment],
-                                   image_results: List[object],
-                                   video_format: str = "portrait") -> List[ImageMatch]:
-        """Match images to video segments."""
+    async def match_images_to_video(
+        self,
+        video_segments: List[VideoSegment],
+        image_results: List[object],
+        video_format: str = "portrait",
+        max_matches: int = 5,
+    ) -> List[ImageMatch]:
+        """Match images to video segments.
+
+        Args:
+            video_segments: Segments of the video with emphasis metadata.
+            image_results: Images retrieved for all detected entities.
+            video_format: Video orientation (portrait or landscape).
+            max_matches: Maximum number of matches to return.
+
+        Returns:
+            List of ``ImageMatch`` objects sorted by relevance.
+        """
         
         matches = []
         
@@ -68,7 +81,12 @@ class ContentMatcher:
                 return 0.0
         
         matches.sort(key=safe_match_score_key, reverse=True)
-        return matches[:5]  # Return top 5 matches
+
+        # Respect caller requested limit
+        if max_matches and max_matches > 0:
+            return matches[:max_matches]
+
+        return matches
     
     def _is_relevant(self, image_result: object, segment: VideoSegment) -> bool:
         """Check if image is relevant to the segment's emphasized entities."""

@@ -825,17 +825,30 @@ class ProcessingPipeline:
         async with self.image_processor as processor:
             # Get processing options based on video format
             preset_options = processor.get_preset_options(self.config.video_format)
-            
+
             # Process images in parallel (batches of 5)
             batch_size = 5
             for i in range(0, len(image_results), batch_size):
                 batch = image_results[i:i + batch_size]
                 batch_urls = [getattr(img, 'url', '') for img in batch]
-                
+
                 if batch_urls:
                     batch_processed = await processor.process_multiple_images(
                         batch_urls, preset_options
                     )
+
+                    # Preserve entity metadata by attaching attributes from the
+                    # original ImageResult to each ProcessedImage
+                    for original, processed in zip(batch, batch_processed):
+                        if processed:
+                            setattr(processed, 'entity_name', getattr(original, 'entity_name', 'unknown'))
+                            setattr(processed, 'entity_type', getattr(original, 'entity_type', 'UNKNOWN'))
+                            setattr(processed, 'search_query', getattr(original, 'search_query', ''))
+                            setattr(processed, 'source', getattr(original, 'source', ''))
+                            setattr(processed, 'url', getattr(original, 'url', ''))
+                            # Provide stable identifier for later matching
+                            setattr(processed, 'image_id', getattr(processed, 'cache_key', None))
+
                     processed_images.extend(batch_processed)
         
         # 🚨 CRITICAL FIX: Store images to database if we have job_id and db_session
@@ -852,12 +865,12 @@ class ProcessingPipeline:
                         id=str(uuid.uuid4()),
                         job_id=self.job_id,
                         original_url=getattr(img, 'original_url', '') or getattr(img, 'url', ''),
-                        original_provider='unsplash',  # Default provider
+                        original_provider=getattr(img, 'source', 'unsplash'),
                         s3_key=getattr(img, 'processed_path', ''),
                         s3_bucket='video-enhancement-images',  # Default bucket
                         cdn_urls={'original': getattr(img, 'processed_path', '')},
                         entity_name=getattr(img, 'entity_name', 'unknown'),
-                        entity_type='UNKNOWN',
+                        entity_type=getattr(img, 'entity_type', 'UNKNOWN'),
                         original_width=getattr(img, 'width', 0),
                         original_height=getattr(img, 'height', 0),
                         original_file_size=getattr(img, 'file_size', 0),
@@ -917,11 +930,11 @@ class ProcessingPipeline:
         
         # Match images to segments
         content_matches = await self.content_matcher.match_images_to_video(
-            video_segments, processed_images, self.config.video_format
+            video_segments,
+            processed_images,
+            self.config.video_format,
+            max_matches=self.config.max_overlays_per_video,
         )
-        
-        # Limit to max overlays
-        content_matches = content_matches[:self.config.max_overlays_per_video]
         
         logger.info(f"Created {len(content_matches)} content matches")
         return content_matches
