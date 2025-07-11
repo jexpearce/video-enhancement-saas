@@ -613,6 +613,10 @@ python -m uvicorn app.main:app --reload  # Start FastAPI
 
 **🎉 Ready for Part 6!** The foundation is rock-solid and the visual enhancement engine is world-class. Time to build the video rendering pipeline!
 
+### Maintenance Notes
+* **2025-07-10** – Removed an unused `EffectsProcessor` module and consolidated duplicate composer files. Overlay asset preparation now falls back to the first available image if an animation event references a missing asset.
+* **2025-07-11** – Rewrote FFmpeg execution to build the command manually. This avoids `ffmpeg-python` mapping bugs so captions and overlays render correctly.
+
 ---
 
 *Built with ❤️ for the creator economy. Empowering 1M+ TikTok and Reels creators with AI-powered video enhancement.* 
