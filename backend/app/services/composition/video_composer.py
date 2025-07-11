@@ -558,6 +558,11 @@ class VideoComposer:
         except:
             pass
         return None
+
+    def _sanitize_label(self, value: str) -> str:
+        """Sanitize a string for use as an FFmpeg label."""
+        import re
+        return re.sub(r"[^A-Za-z0-9]", "", value)
     
     async def _build_filter_graph(
         self,
@@ -599,7 +604,8 @@ class VideoComposer:
             
             # Get size in pixels
             size_pixels = self._get_size_pixels(asset.size)
-            temp_label = f"scaled_{asset.asset_id}"
+            safe_id = self._sanitize_label(asset.asset_id)
+            temp_label = f"scaled_{safe_id}"
             
             # Build filter parts for this overlay
             scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
@@ -636,7 +642,8 @@ class VideoComposer:
         size_pixels = self._get_size_pixels(asset.size)
         
         # CRITICAL FIX: Build proper FFmpeg filter chain
-        temp_label = f"scaled_{asset.asset_id}"
+        safe_id = self._sanitize_label(asset.asset_id)
+        temp_label = f"scaled_{safe_id}"
         
         # Step 1: Scale the overlay image
         scale_filter = f"{overlay_input}scale={size_pixels}:-1[{temp_label}]"
