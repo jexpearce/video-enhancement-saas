@@ -370,10 +370,13 @@ class AnimationEngine:
         image_id = image.get('image_id', 'default')
         
         # 1. Entry animation
+        # Clamp start time so we never go negative which would break FFmpeg
+        entry_start = max(0.0, group.start_time - 0.2)
+
         entry_event = {
             'type': 'image_entry',
             'target_id': image_id,
-            'start_time': group.start_time - 0.2,  # Start slightly before emphasis
+            'start_time': entry_start,
             'duration': transition_duration,
             'properties': self._get_entry_animation_properties(style, image)
         }
@@ -402,10 +405,12 @@ class AnimationEngine:
                 events.append(pulse_event)
         
         # 4. Exit animation
+        exit_start = max(0.0, group.start_time + duration - transition_duration)
+
         exit_event = {
             'type': 'image_exit',
             'target_id': image_id,
-            'start_time': group.start_time + duration - transition_duration,
+            'start_time': exit_start,
             'duration': transition_duration,
             'properties': self._get_exit_animation_properties(style, image)
         }
@@ -429,8 +434,8 @@ class AnimationEngine:
         stagger_delay = (duration - overlap_duration) / (len(images) - 1) if len(images) > 1 else 0
         
         for i, image in enumerate(images):
-            # Stagger start times
-            image_start = group.start_time - 0.2 + (i * stagger_delay)
+            # Stagger start times and ensure they never go negative
+            image_start = max(0.0, group.start_time - 0.2 + (i * stagger_delay))
             image_duration = overlap_duration
             
             # Create individual animation events

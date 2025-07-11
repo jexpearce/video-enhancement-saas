@@ -451,12 +451,14 @@ class VideoComposer:
                     quality_score = matching_image.get('quality_score', 0)
                 
                 # Create composition asset
+                start_time = max(0.0, event.get('start_time', 0))
+
                 asset = CompositionAsset(
                     asset_id=str(image_id),
                     asset_type='image',
                     local_path=local_path,
                     original_url=original_url,
-                    start_time=event.get('start_time', 0),
+                    start_time=start_time,
                     duration=event.get('duration', self.config.overlay_duration_default),
                     position=event.get('properties', {}).get('position', 'top-right'),
                     size=event.get('properties', {}).get('size', 'medium'),
