@@ -44,15 +44,15 @@ class ProcessingConfig:
     min_emphasis_duration: float = 1.0
     
     # Entity recognition
-    entity_confidence_threshold: float = 0.6
-    max_entities_per_segment: int = 3
+    entity_confidence_threshold: float = 0.5  # FIXED: Lower threshold for more entities
+    max_entities_per_segment: int = 8         # FIXED: Allow more entities per segment
     
     # Image search
-    max_images_per_entity: int = 3
-    image_quality_threshold: float = 0.6
+    max_images_per_entity: int = 2            # FIXED: Slightly reduced to balance
+    image_quality_threshold: float = 0.5      # FIXED: Lower threshold for more images
     
     # Content matching
-    max_overlays_per_video: int = 8
+    max_overlays_per_video: int = 15          # FIXED: Allow many more overlays
     min_overlay_duration: float = 2.0
     max_overlay_duration: float = 6.0
     

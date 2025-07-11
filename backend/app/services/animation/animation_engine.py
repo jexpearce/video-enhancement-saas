@@ -34,8 +34,8 @@ class AnimationConfig:
     """Configuration for animation engine."""
     
     # Timing settings
-    min_gap_between_animations: float = 1.5  # Minimum seconds between animations
-    max_concurrent_animations: int = 2       # Max overlapping animations
+    min_gap_between_animations: float = 0.5  # FIXED: Reduced for better precision
+    max_concurrent_animations: int = 6       # FIXED: Allow more overlays
     emphasis_animation_duration: float = 0.8 # Standard duration for emphasis animations
     
     # Visual settings
@@ -369,11 +369,14 @@ class AnimationEngine:
         transition_duration = 0.5  # Fixed transition time
         image_id = image.get('image_id', 'default')
         
+        # FIXED: Use precise emphasis point timing for perfect synchronization
+        first_emphasis_time = group.emphasis_points[0].get('start_time', group.start_time) if group.emphasis_points else group.start_time
+        
         # 1. Entry animation
         entry_event = {
             'type': 'image_entry',
             'target_id': image_id,
-            'start_time': group.start_time - 0.2,  # Start slightly before emphasis
+            'start_time': first_emphasis_time - 0.1,  # Start just before actual word
             'duration': transition_duration,
             'properties': self._get_entry_animation_properties(style, image)
         }
@@ -382,7 +385,7 @@ class AnimationEngine:
         # 2. Ken Burns effect (if enabled and appropriate)
         if style.get('has_ken_burns', False) and duration > 2.0:
             kb_event = self._create_ken_burns_effect(
-                image, group.start_time, duration, style
+                image, first_emphasis_time, duration, style
             )
             events.append(kb_event)
         
@@ -405,7 +408,7 @@ class AnimationEngine:
         exit_event = {
             'type': 'image_exit',
             'target_id': image_id,
-            'start_time': group.start_time + duration - transition_duration,
+            'start_time': first_emphasis_time + duration - transition_duration,
             'duration': transition_duration,
             'properties': self._get_exit_animation_properties(style, image)
         }

@@ -1,0 +1,63 @@
+/Users/jexpearce/Library/Python/3.9/lib/python/site-packages/pydantic/_internal/_fields.py:149: UserWarning: Field "model_version" has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+INFO:     Started server process [96008]
+INFO:     Waiting for application startup.
+INFO:app.main:Starting Video Enhancement SaaS API...
+2025-07-10 20:31:12,210 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-10 20:31:12,210 INFO sqlalchemy.engine.Engine SELECT 1
+INFO:sqlalchemy.engine.Engine:SELECT 1
+2025-07-10 20:31:12,210 INFO sqlalchemy.engine.Engine [generated in 0.00008s] ()
+INFO:sqlalchemy.engine.Engine:[generated in 0.00008s] ()
+2025-07-10 20:31:12,210 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:sqlalchemy.engine.Engine:ROLLBACK
+INFO:app.database.connection:Database connection successful
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+INFO:sqlalchemy.engine.Engine:BEGIN (implicit)
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("processing_jobs")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("processing_jobs")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("stored_images")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("stored_images")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("enriched_entities")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("enriched_entities")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("emphasis_points")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("emphasis_points")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("user_preferences")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("user_preferences")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("api_usage")
+INFO:sqlalchemy.engine.Engine:PRAGMA main.table_info("api_usage")
+2025-07-10 20:31:12,211 INFO sqlalchemy.engine.Engine [raw sql] ()
+INFO:sqlalchemy.engine.Engine:[raw sql] ()
+2025-07-10 20:31:12,212 INFO sqlalchemy.engine.Engine COMMIT
+INFO:sqlalchemy.engine.Engine:COMMIT
+INFO:app.database.connection:Database tables created successfully
+INFO:app.main:Database initialized successfully
+INFO:app.main:=== API Key Setup ===
+INFO:app.main:# Add these to your .env file for testing:
+INFO:app.main:ADMIN_API_KEY=vea_d963926b3439ab2d966d444dac249462d8d20e9462cdf7e25a237b8d65537020
+INFO:app.main:# Demo API keys (for testing):
+INFO:app.main:# demo_user_1: vea_aaee3c213dec82e5285cbc2cb31d69d01b6e9805faa0a71f312bcf2d721eb0d3
+INFO:app.main:# demo_user_2: vea_048fb1f204cfceccf48d4925b2547e1c2283f80bd4531e58f1e70a3f53d99752
+INFO:app.main:# demo_user_3: vea_1ef789368b538bcc82c6c5dbf6b690ba5940414a5fdb49052ccd6bc722cb0e64
+INFO:app.main:# Usage examples:
+INFO:app.main:# curl -H "Authorization: Bearer vea_d963926b3439ab2d966d444dac249462d8d20e9462cdf7e25a237b8d65537020" http://localhost:8000/api/v1/health/detailed
+INFO:app.main:# curl -H "Authorization: Bearer vea_aaee3c213dec82e5285cbc2cb31d69d01b6e9805faa0a71f312bcf2d721eb0d3" http://localhost:8000/api/v1/jobs
+INFO:app.main:======================
+INFO:app.main:API startup completed successfully
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:app.main:Shutting down Video Enhancement SaaS API...
+INFO:     Application shutdown complete.
