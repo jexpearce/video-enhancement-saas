@@ -139,7 +139,8 @@ class ImageProvider(ABC):
         elif total_pixels >= 640 * 480:  # SD
             score += 0.2
         else:
-            score += 0.1
+            # Lowest resolution - keep score modest to avoid rounding issues
+            score += 0.05
             
         # Aspect ratio scoring (prefer standard ratios)
         aspect_ratio = width / height
