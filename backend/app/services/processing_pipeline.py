@@ -822,23 +822,17 @@ class ProcessingPipeline:
         
         processed_images = []
         
-        async with self.image_processor as processor:
-            # Get processing options based on video format
-            preset_options = processor.get_preset_options(self.config.video_format)
-
-            # Process images in parallel (batches of 5)
-            batch_size = 5
+        try:
+            # Process images in batches
+            batch_size = 10
             for i in range(0, len(image_results), batch_size):
                 batch = image_results[i:i + batch_size]
-                batch_urls = [getattr(img, 'url', '') for img in batch]
-
-                if batch_urls:
-                    batch_processed = await processor.process_multiple_images(
-                        batch_urls, preset_options
-                    )
-
-                    # Preserve entity metadata by attaching attributes from the
-                    # original ImageResult to each ProcessedImage
+                
+                # Process the batch
+                batch_processed = await self.image_processor.process_multiple_images(batch)
+                
+                if batch_processed:
+                    # 🚨 CODEX'S APPROACH: Preserve entity information using zip
                     for original, processed in zip(batch, batch_processed):
                         if processed:
                             setattr(processed, 'entity_name', getattr(original, 'entity_name', 'unknown'))
@@ -846,20 +840,39 @@ class ProcessingPipeline:
                             setattr(processed, 'search_query', getattr(original, 'search_query', ''))
                             setattr(processed, 'source', getattr(original, 'source', ''))
                             setattr(processed, 'url', getattr(original, 'url', ''))
-                            # Provide stable identifier for later matching
                             setattr(processed, 'image_id', getattr(processed, 'cache_key', None))
-
+                    
                     processed_images.extend(batch_processed)
+                    
+                    # Store processed images to database
+                    await self._store_processed_images(batch_processed)
+                    
+                    logger.info(f"Processed and stored {len(batch_processed)} images from batch {i//batch_size + 1}")
+                else:
+                    logger.warning(f"No images processed in batch {i//batch_size + 1}")
+                    
+        except Exception as e:
+            logger.error(f"Error processing images: {str(e)}")
+            raise
         
-        # 🚨 CRITICAL FIX: Store images to database if we have job_id and db_session
+        return processed_images
+    
+    async def _store_processed_images(self, processed_images: List[Any]):
+        """Store processed images to the database."""
         if self.job_id and self.db_session and processed_images:
-            logger.info(f"💾 Storing {len(processed_images)} processed images to database for job {self.job_id}")
             try:
                 from app.database.models import StoredImage
                 import uuid
                 from datetime import datetime
                 
                 for img in processed_images:
+                    # Use preserved entity information
+                    entity_name = getattr(img, 'entity_name', 'unknown')
+                    entity_type = getattr(img, 'entity_type', 'UNKNOWN')
+                    
+                    # Log what we're storing for debugging
+                    logger.info(f"💾 Storing image with entity_name='{entity_name}', entity_type='{entity_type}'")
+                    
                     # Create StoredImage record
                     stored_image = StoredImage(
                         id=str(uuid.uuid4()),
@@ -869,13 +882,13 @@ class ProcessingPipeline:
                         s3_key=getattr(img, 'processed_path', ''),
                         s3_bucket='video-enhancement-images',  # Default bucket
                         cdn_urls={'original': getattr(img, 'processed_path', '')},
-                        entity_name=getattr(img, 'entity_name', 'unknown'),
-                        entity_type=getattr(img, 'entity_type', 'UNKNOWN'),
+                        entity_name=entity_name,  # 🚨 FIXED: Now uses actual entity name
+                        entity_type=entity_type,  # 🚨 FIXED: Now uses actual entity type
                         original_width=getattr(img, 'width', 0),
                         original_height=getattr(img, 'height', 0),
                         original_file_size=getattr(img, 'file_size', 0),
-                        quality_score=0.8,  # Default score
-                        relevance_score=0.8,  # Default score
+                        quality_score=getattr(img, 'quality_score', 0.8),
+                        relevance_score=getattr(img, 'relevance_score', 0.8),
                         aesthetic_score=0.8,  # Default score
                         ranking_score=0.8,  # Default score
                         processing_status='completed',
@@ -895,9 +908,6 @@ class ProcessingPipeline:
                 logger.error(f"Full traceback: {traceback.format_exc()}")
                 # Don't fail the whole pipeline if database storage fails
                 pass
-        
-        logger.info(f"Processed {len(processed_images)}/{len(image_results)} images")
-        return processed_images
     
     async def _match_content(self, emphasized_segments: List[Dict], 
                            enriched_entities: List[Any], 
