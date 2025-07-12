@@ -259,7 +259,17 @@ class AnimationEngine:
         """Create a grouped emphasis from individual points."""
         
         # Find primary entity (most emphasized)
-        primary_entity = max(points, key=lambda p: p.get('emphasis_score', 0)).get('word_text', 'entity')
+        # Older emphasis detection returned a 'word_text' field but newer
+        # pipeline versions store the text under either 'word' or 'text'.
+        # Use whichever field is available to avoid defaulting to the generic
+        # value "entity" which caused improper image assignments.
+        primary_point = max(points, key=lambda p: p.get('emphasis_score', 0))
+        primary_entity = (
+            primary_point.get('word')
+            or primary_point.get('text')
+            or primary_point.get('word_text')
+            or 'entity'
+        )
         
         # Calculate combined energy level
         total_energy = sum(p.get('emphasis_score', 0.5) for p in points)
