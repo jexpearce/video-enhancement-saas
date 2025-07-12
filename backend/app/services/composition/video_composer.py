@@ -395,21 +395,31 @@ class VideoComposer:
                 logger.debug(f"🔍 Available curated_images: {[img.get('image_id', img.get('id', 'no_id')) if isinstance(img, dict) else getattr(img, 'cache_key', 'no_cache_key') for img in curated_images]}")
                 
                 for img in curated_images:
-                    # FIXED: Handle both ProcessedImage objects and dictionaries with consistent field matching
+                    # CODEX FIX: Enhanced matching logic with entity_name fallback
                     if hasattr(img, 'cache_key'):  # ProcessedImage object
                         cache_key = getattr(img, 'cache_key', '')
-                        if cache_key == image_id:
+                        entity_name = getattr(img, 'entity_name', '').lower()
+                        
+                        if (
+                            cache_key == image_id or
+                            entity_name == str(image_id).lower()
+                        ):
                             matching_image = img
-                            logger.debug(f"✅ Found matching ProcessedImage by cache_key: {cache_key}")
+                            logger.debug(f"✅ Found matching ProcessedImage by cache_key/entity_name: {cache_key}/{entity_name}")
                             break
                     else:  # Dictionary
-                        # Check multiple possible ID fields
+                        # Check multiple possible ID fields with entity_name fallback
                         img_id = img.get('image_id') or img.get('id')
                         entity_id = img.get('entity_id') or img.get('entity_name')
+                        cache_key = img.get('cache_key', '')
+                        entity_name = img.get('entity_name', '').lower()
                         
-                        if (img_id == image_id or 
+                        if (
+                            img_id == image_id or 
                             entity_id == image_id or
-                            img.get('cache_key') == image_id):
+                            cache_key == image_id or
+                            entity_name == str(image_id).lower()
+                        ):
                             matching_image = img
                             logger.debug(f"✅ Found matching dictionary image by id: {img_id} or entity_id: {entity_id}")
                             break
