@@ -214,6 +214,12 @@ class ProcessingPipeline:
             entities, enriched_entities = await self._extract_and_enrich_entities(
                 result.transcription, emphasized_segments
             )
+            
+            # CRITICAL FIX: Connect entities to emphasis timing
+            enriched_entities = await self._connect_entities_to_emphasis_timing(
+                emphasized_segments, entities, enriched_entities
+            )
+            
             result.recognized_entities = entities
             result.enriched_entities = enriched_entities
             result.entity_recognition_time = time.time() - step_start
@@ -1271,3 +1277,102 @@ class ProcessingPipeline:
         
         logger.info(f"Batch processing completed: {len(successful_results)}/{len(video_paths)} successful")
         return successful_results 
+
+    async def _connect_entities_to_emphasis_timing(
+        self, 
+        emphasized_segments: List[Dict], 
+        entities: List[Any],
+        enriched_entities: List[Any]
+    ) -> List[Any]:
+        """
+        CRITICAL FIX: Connect entities to their emphasis timing.
+        This ensures each entity knows WHEN it was spoken.
+        """
+        
+        logger.info(f"🔗 Connecting {len(enriched_entities)} entities to {len(emphasized_segments)} emphasis points")
+        
+        # Create a mapping of words to their timing
+        word_timing_map = {}
+        for segment in emphasized_segments:
+            word = segment.get('word', '').lower().strip()
+            if word:
+                word_timing_map[word] = {
+                    'start_time': segment.get('start_time', 0),
+                    'end_time': segment.get('end_time', 0),
+                    'emphasis_score': segment.get('emphasis_score', 0.5),
+                    'is_emphasized': segment.get('is_emphasized', False)
+                }
+        
+        logger.info(f"🔗 Word timing map has {len(word_timing_map)} entries")
+        
+        # Enhanced entities with timing
+        timed_entities = []
+        
+        for entity in enriched_entities:
+            entity_text = getattr(entity, 'text', '').lower().strip()
+            canonical_name = getattr(entity, 'canonical_name', entity_text).lower().strip()
+            
+            # Try to find timing for this entity
+            timing_info = None
+            
+            # Method 1: Direct word match
+            if entity_text in word_timing_map:
+                timing_info = word_timing_map[entity_text]
+                logger.info(f"🔗 Found direct match for '{entity_text}'")
+            
+            # Method 2: Canonical name match
+            elif canonical_name in word_timing_map:
+                timing_info = word_timing_map[canonical_name]
+                logger.info(f"🔗 Found canonical match for '{canonical_name}'")
+            
+            # Method 3: Partial match (entity might be part of emphasized word)
+            else:
+                for word, timing in word_timing_map.items():
+                    if entity_text in word or word in entity_text:
+                        timing_info = timing
+                        logger.info(f"🔗 Found partial match: '{entity_text}' in '{word}'")
+                        break
+            
+            # Method 4: Find nearest emphasis point by context
+            if not timing_info and hasattr(entity, 'start_char'):
+                # Estimate timing based on character position
+                total_chars = len(' '.join(seg.get('text', '') for seg in emphasized_segments))
+                char_ratio = entity.start_char / max(total_chars, 1)
+                
+                # Find nearest emphasis point
+                nearest_segment = None
+                min_distance = float('inf')
+                
+                for segment in emphasized_segments:
+                    segment_time = segment.get('start_time', 0)
+                    distance = abs(char_ratio - (segment_time / 30.0))  # Assume ~30s video
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_segment = segment
+                
+                if nearest_segment:
+                    timing_info = {
+                        'start_time': nearest_segment.get('start_time', 0),
+                        'end_time': nearest_segment.get('end_time', 0),
+                        'emphasis_score': 0.5,  # Lower score for estimated
+                        'is_emphasized': False
+                    }
+                    logger.info(f"🔗 Estimated timing for '{entity_text}' based on context")
+            
+            # Create enhanced entity with timing
+            if timing_info:
+                # Add timing attributes to entity
+                setattr(entity, 'start_time', timing_info['start_time'])
+                setattr(entity, 'end_time', timing_info['end_time'])
+                setattr(entity, 'emphasis_score', timing_info['emphasis_score'])
+                setattr(entity, 'is_emphasized', timing_info['is_emphasized'])
+                
+                logger.info(f"🔗 Entity '{canonical_name}' now has timing: {timing_info['start_time']:.2f}s")
+                
+                timed_entities.append(entity)
+            else:
+                logger.warning(f"🔗 No timing found for entity '{entity_text}'")
+        
+        logger.info(f"🔗 Successfully timed {len(timed_entities)}/{len(enriched_entities)} entities")
+        
+        return timed_entities if timed_entities else enriched_entities 

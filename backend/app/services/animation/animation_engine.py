@@ -119,16 +119,7 @@ class AnimationEngine:
     ) -> Dict:
         """
         Create sophisticated animation timeline for video enhancement.
-        
-        Args:
-            emphasis_points: Detected emphasis points with timing
-            ranked_images: Images ranked by relevance
-            style: Selected style template
-            video_duration: Total video duration in seconds
-            audio_beats: Optional beat timestamps for synchronization
-            
-        Returns:
-            AnimationTimeline with all animation events
+        FIXED: Now properly handles entity-based timing and image matching.
         """
         
         start_time = datetime.now()
@@ -136,81 +127,133 @@ class AnimationEngine:
         try:
             logger.info(f"Creating animation timeline for {len(emphasis_points)} emphasis points")
             
-            # Check cache first
+            # Cache check (keeping existing logic)
             cache_key = self._generate_cache_key(emphasis_points, style, video_duration)
             if cache_key in self.timeline_cache:
                 logger.debug("Using cached timeline")
                 return self.timeline_cache[cache_key]
             
-            # 1. Group nearby emphasis points to avoid visual overload
-            grouped_points = self._group_emphasis_points(emphasis_points)
-            logger.debug(f"Grouped {len(emphasis_points)} points into {len(grouped_points)} groups")
+            # CRITICAL FIX 1: Create entity-based groups instead of just word groups
+            # Extract unique entities with their timing from ranked_images
+            entity_timing_map = {}
             
-            # 2. Assign images to groups based on relevance and timing
-            try:
-                image_assignments = self._assign_images_to_groups(grouped_points, ranked_images)
-                logger.debug(f"✅ Image assignment successful: {len(image_assignments)} groups")
-            except Exception as assignment_error:
-                logger.error(f"❌ Image assignment failed: {assignment_error}")
-                raise assignment_error
+            for img in ranked_images:
+                entity_id = img.get('entity_id') or img.get('entity_name', '').lower()
+                if entity_id and entity_id not in entity_timing_map:
+                    # Find emphasis points that match this entity
+                    matching_emphasis = []
+                    
+                    for point in emphasis_points:
+                        point_word = point.get('word', '').lower()
+                        point_text = point.get('text', '').lower()
+                        
+                        # Check if this emphasis point matches the entity
+                        if (entity_id == point_word or 
+                            entity_id == point_text or
+                            entity_id in point_word or
+                            point_word in entity_id):
+                            matching_emphasis.append(point)
+                    
+                    if matching_emphasis:
+                        # Use the first matching emphasis point for timing
+                        first_match = matching_emphasis[0]
+                        entity_timing_map[entity_id] = {
+                            'start_time': first_match.get('start_time', 0),
+                            'end_time': first_match.get('end_time', first_match.get('start_time', 0) + 1),
+                            'emphasis_points': matching_emphasis,
+                            'images': []
+                        }
             
-            # 3. Create animation timeline
+            # Add images to their respective entities
+            for img in ranked_images:
+                entity_id = img.get('entity_id') or img.get('entity_name', '').lower()
+                if entity_id in entity_timing_map:
+                    entity_timing_map[entity_id]['images'].append(img)
+            
+            logger.info(f"Created entity timing map with {len(entity_timing_map)} entities")
+            
+            # CRITICAL FIX 2: Create groups based on entities, not just temporal proximity
+            grouped_entities = []
+            
+            for entity_id, entity_data in entity_timing_map.items():
+                if entity_data['images']:  # Only create groups for entities with images
+                    group = GroupedEmphasis(
+                        start_time=entity_data['start_time'],
+                        end_time=entity_data['end_time'],
+                        emphasis_points=entity_data['emphasis_points'],
+                        primary_entity=entity_id,  # Use actual entity ID
+                        energy_level=max(p.get('emphasis_score', 0.5) for p in entity_data['emphasis_points'])
+                    )
+                    grouped_entities.append((group, entity_data['images']))
+                    
+                    logger.info(f"Created group for entity '{entity_id}' at {group.start_time:.2f}s with {len(entity_data['images'])} images")
+            
+            # Sort by start time
+            grouped_entities.sort(key=lambda x: x[0].start_time)
+            
+            # Create timeline
             timeline = {
                 'duration': video_duration,
                 'events': []
             }
             
-            # 4. Create animation events for each group
-            for group, images in image_assignments.items():
+            # CRITICAL FIX 3: Create animations with proper entity-image matching
+            for group, images in grouped_entities:
                 if not images:
                     continue
-                    
-                # Determine display duration based on group characteristics
+                
+                # Determine display duration
                 display_duration = self._calculate_display_duration(group, style)
                 
-                # Create animations based on number of images
+                # Create animations
                 if len(images) == 1:
                     events = await self._create_single_image_animation(
                         images[0], group, display_duration, style
                     )
                 else:
                     events = await self._create_multi_image_animation(
-                        images, group, display_duration, style
+                        images[:2], group, display_duration, style  # Limit to 2 images per entity
                     )
                 
                 timeline['events'].extend(events)
+                
+                logger.info(f"Added {len(events)} events for entity '{group.primary_entity}'")
             
-            # 5. Add text/caption animations synchronized with images
+            # Add other animations (captions, beat sync, etc.) - keeping existing logic
             if style.get('has_text_overlays', False):
                 caption_events = await self._create_caption_animations(
                     emphasis_points, timeline, style
                 )
                 timeline['events'].extend(caption_events)
             
-            # 6. Add beat synchronization if audio beats provided
             if audio_beats and style.get('has_pulse_to_beat', False):
                 beat_events = self._create_beat_sync_events(
                     timeline, audio_beats, style
                 )
                 timeline['events'].extend(beat_events)
             
-            # 7. Optimize timeline to prevent conflicts and improve performance
+            # Optimize timeline
             timeline = self._optimize_timeline(timeline)
             
-            # 8. Cache result
+            # Cache result
             self.timeline_cache[cache_key] = timeline
             
-            # 9. Update performance stats
+            # Update stats
             processing_time = (datetime.now() - start_time).total_seconds() * 1000
             self._update_performance_stats(processing_time)
             
             logger.info(f"Created timeline with {len(timeline['events'])} events in {processing_time:.1f}ms")
             
+            # CRITICAL DEBUG: Log the actual events created
+            for i, event in enumerate(timeline['events'][:10]):  # Show first 10
+                logger.info(f"  Event {i}: type={event.get('type')}, target_id={event.get('target_id')}, start={event.get('start_time'):.2f}s")
+            
             return timeline
             
         except Exception as e:
             logger.error(f"Failed to create animation timeline: {e}")
-            # Return basic timeline as fallback
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return self._create_fallback_timeline(emphasis_points, ranked_images, video_duration)
     
     def _group_emphasis_points(self, emphasis_points: List[Dict]) -> List[GroupedEmphasis]:

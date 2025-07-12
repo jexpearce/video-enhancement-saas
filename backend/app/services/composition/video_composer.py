@@ -378,91 +378,121 @@ class VideoComposer:
         curated_images: List[Dict],
         composition_timeline: CompositionTimeline
     ) -> List[CompositionAsset]:
-        """Download and prepare images for overlay based on timeline events."""
+        """Download and prepare images for overlay based on timeline events.
+        FIXED: Now properly matches images to events using entity information.
+        """
         
         overlay_assets = []
+        used_images = set()  # Track which images have been used
         
         try:
+            # CRITICAL FIX: Build entity-to-images mapping first
+            entity_image_map = {}
+            
+            for img in curated_images:
+                # Extract entity identifier from various possible fields
+                entity_id = None
+                
+                if hasattr(img, 'entity_name'):  # ProcessedImage object
+                    entity_id = getattr(img, 'entity_name', '').lower()
+                else:  # Dictionary
+                    entity_id = (
+                        img.get('entity_name', '') or 
+                        img.get('entity_id', '') or
+                        img.get('entity', '')
+                    ).lower()
+                
+                if entity_id:
+                    if entity_id not in entity_image_map:
+                        entity_image_map[entity_id] = []
+                    entity_image_map[entity_id].append(img)
+                    
+                    logger.debug(f"🗂️ Mapped image to entity '{entity_id}'")
+            
+            logger.info(f"🗂️ Created entity map with {len(entity_image_map)} entities and {len(curated_images)} total images")
+            
+            # Process timeline events
             for event in composition_timeline.events:
                 if event.get('type') != 'image_entry':
                     continue
                 
-                # Find corresponding curated image
-                image_id = event.get('target_id')
-                matching_image = None
+                # Extract entity from target_id
+                target_id = event.get('target_id', '')
+                entity_id = target_id.lower()  # Normalize for matching
                 
-                logger.debug(f"🔍 Looking for image with target_id: {image_id}")
-                logger.debug(f"🔍 Available curated_images: {[img.get('image_id', img.get('id', 'no_id')) if isinstance(img, dict) else getattr(img, 'cache_key', 'no_cache_key') for img in curated_images]}")
+                logger.debug(f"🎯 Processing event for entity: '{entity_id}' at {event.get('start_time', 0):.2f}s")
                 
-                for img in curated_images:
-                    # CODEX FIX: Enhanced matching logic with entity_name fallback
-                    if hasattr(img, 'cache_key'):  # ProcessedImage object
-                        cache_key = getattr(img, 'cache_key', '')
-                        entity_name = getattr(img, 'entity_name', '').lower()
-                        
-                        if (
-                            cache_key == image_id or
-                            entity_name == str(image_id).lower()
-                        ):
-                            matching_image = img
-                            logger.debug(f"✅ Found matching ProcessedImage by cache_key/entity_name: {cache_key}/{entity_name}")
-                            break
-                    else:  # Dictionary
-                        # Check multiple possible ID fields with entity_name fallback
-                        img_id = img.get('image_id') or img.get('id')
-                        entity_id = img.get('entity_id') or img.get('entity_name')
-                        cache_key = img.get('cache_key', '')
-                        entity_name = img.get('entity_name', '').lower()
-                        
-                        if (
-                            img_id == image_id or 
-                            entity_id == image_id or
-                            cache_key == image_id or
-                            entity_name == str(image_id).lower()
-                        ):
-                            matching_image = img
-                            logger.debug(f"✅ Found matching dictionary image by id: {img_id} or entity_id: {entity_id}")
+                # Find matching images for this entity
+                matching_images = entity_image_map.get(entity_id, [])
+                
+                # If no direct match, try partial matching
+                if not matching_images:
+                    for mapped_entity, images in entity_image_map.items():
+                        if entity_id in mapped_entity or mapped_entity in entity_id:
+                            matching_images = images
+                            logger.debug(f"🎯 Found partial match: '{entity_id}' ~ '{mapped_entity}'")
                             break
                 
-                if not matching_image:
-                    logger.warning(
-                        f"❌ No matching image found for target_id: {image_id}"
-                    )
-                    logger.warning(
-                        f"❌ Available image IDs: {[getattr(img, 'cache_key', 'no_cache_key') if hasattr(img, 'cache_key') else img.get('image_id', img.get('id', 'no_id')) for img in curated_images]}"
-                    )
-
-                    # Fallback: use the first curated image if available
-                    if curated_images:
-                        matching_image = curated_images[0]
-                        logger.info(
-                            f"🔧 Fallback: using first available image {getattr(matching_image, 'cache_key', getattr(matching_image, 'id', 'no_id'))}"
-                        )
+                # Select an unused image
+                selected_image = None
+                for img in matching_images:
+                    # Create unique image identifier
+                    if hasattr(img, 'cache_key'):
+                        img_id = getattr(img, 'cache_key')
                     else:
-                        continue
+                        img_id = img.get('image_id') or img.get('id') or img.get('url', '')
+                    
+                    if img_id not in used_images:
+                        selected_image = img
+                        used_images.add(img_id)
+                        logger.debug(f"✅ Selected unused image for '{entity_id}': {img_id}")
+                        break
                 
-                # Download image to local temp file
-                local_path = await self._download_image_asset(matching_image)
+                # If all images for this entity are used, reuse the first one
+                if not selected_image and matching_images:
+                    selected_image = matching_images[0]
+                    logger.debug(f"♻️ Reusing image for '{entity_id}' (all images used)")
                 
-                if not local_path:
-                    logger.warning(f"Failed to download image: {matching_image}")
+                # Last resort: use any available image
+                if not selected_image and curated_images:
+                    for img in curated_images:
+                        if hasattr(img, 'cache_key'):
+                            img_id = getattr(img, 'cache_key')
+                        else:
+                            img_id = img.get('image_id') or img.get('id') or img.get('url', '')
+                        
+                        if img_id not in used_images:
+                            selected_image = img
+                            used_images.add(img_id)
+                            logger.warning(f"⚠️ Using any available image for '{entity_id}'")
+                            break
+                
+                if not selected_image:
+                    logger.error(f"❌ No image available for entity '{entity_id}'")
                     continue
                 
-                # FIXED: Handle ProcessedImage objects vs dictionaries
-                if hasattr(matching_image, 'original_url'):  # ProcessedImage object
-                    original_url = getattr(matching_image, 'original_url', '')
-                    entity_name = getattr(matching_image, 'entity_name', f"entity_{image_id}")
-                    relevance_score = 0.8  # Default for processed images
-                    quality_score = min(1.0, getattr(matching_image, 'file_size', 0) / 100000)
-                else:  # Dictionary
-                    original_url = matching_image.get('url', '')
-                    entity_name = matching_image.get('entity_name', '')
-                    relevance_score = matching_image.get('relevance_score', 0)
-                    quality_score = matching_image.get('quality_score', 0)
+                # Download image to local temp file
+                local_path = await self._download_image_asset(selected_image)
                 
-                # Create composition asset
+                if not local_path:
+                    logger.warning(f"Failed to download image for entity '{entity_id}'")
+                    continue
+                
+                # Extract metadata
+                if hasattr(selected_image, 'original_url'):  # ProcessedImage object
+                    original_url = getattr(selected_image, 'original_url', '')
+                    entity_name = getattr(selected_image, 'entity_name', entity_id)
+                    relevance_score = 0.8
+                    quality_score = min(1.0, getattr(selected_image, 'file_size', 0) / 100000)
+                else:  # Dictionary
+                    original_url = selected_image.get('url', '')
+                    entity_name = selected_image.get('entity_name', entity_id)
+                    relevance_score = selected_image.get('relevance_score', 0.7)
+                    quality_score = selected_image.get('quality_score', 0.7)
+                
+                # Create composition asset with correct timing
                 asset = CompositionAsset(
-                    asset_id=str(image_id),
+                    asset_id=str(target_id),  # Keep original target_id for matching
                     asset_type='image',
                     local_path=local_path,
                     original_url=original_url,
@@ -484,12 +514,20 @@ class VideoComposer:
                 )
                 
                 overlay_assets.append(asset)
-                logger.debug(f"Prepared overlay asset: {asset.asset_id}")
+                logger.info(f"✅ Prepared overlay for '{entity_name}' at {asset.start_time:.2f}s")
             
-            logger.info(f"Prepared {len(overlay_assets)} overlay assets")
+            logger.info(f"📦 Prepared {len(overlay_assets)} overlay assets")
+            
+            # Log final asset timeline for debugging
+            for i, asset in enumerate(overlay_assets):
+                logger.info(f"  Asset {i}: {asset.metadata.get('entity_name')} at {asset.start_time:.2f}s for {asset.duration:.1f}s")
+            
             return overlay_assets
             
         except Exception as e:
+            logger.error(f"Failed to prepare overlay assets: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise AssetError(f"Failed to prepare overlay assets: {e}")
     
     async def _download_image_asset(self, image_data: Dict) -> Optional[str]:
