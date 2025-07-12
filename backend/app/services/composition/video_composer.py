@@ -416,9 +416,10 @@ class VideoComposer:
                 if event.get('type') != 'image_entry':
                     continue
                 
-                # Extract entity from target_id
+                # Extract entity from target_id and the specific image id if provided
                 target_id = event.get('target_id', '')
                 entity_id = target_id.lower()  # Normalize for matching
+                specified_image_id = event.get('properties', {}).get('image_id')
                 
                 logger.debug(f"🎯 Processing event for entity: '{entity_id}' at {event.get('start_time', 0):.2f}s")
                 
@@ -433,16 +434,21 @@ class VideoComposer:
                             logger.debug(f"🎯 Found partial match: '{entity_id}' ~ '{mapped_entity}'")
                             break
                 
-                # Select an unused image
+                # Select an unused image, preferring the one specified by the timeline
                 selected_image = None
                 for img in matching_images:
-                    # Create unique image identifier
                     if hasattr(img, 'cache_key'):
                         img_id = getattr(img, 'cache_key')
                     else:
                         img_id = img.get('image_id') or img.get('id') or img.get('url', '')
-                    
-                    if img_id not in used_images:
+
+                    if specified_image_id and img_id == specified_image_id:
+                        selected_image = img
+                        used_images.add(img_id)
+                        logger.debug(f"✅ Using specified image for '{entity_id}': {img_id}")
+                        break
+
+                    if not specified_image_id and img_id not in used_images:
                         selected_image = img
                         used_images.add(img_id)
                         logger.debug(f"✅ Selected unused image for '{entity_id}': {img_id}")
@@ -492,7 +498,7 @@ class VideoComposer:
                 
                 # Create composition asset with correct timing
                 asset = CompositionAsset(
-                    asset_id=str(target_id),  # Keep original target_id for matching
+                    asset_id=str(specified_image_id or target_id),
                     asset_type='image',
                     local_path=local_path,
                     original_url=original_url,

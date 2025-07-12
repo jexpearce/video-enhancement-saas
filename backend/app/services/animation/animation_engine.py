@@ -428,10 +428,14 @@ class AnimationEngine:
         # 1. Entry animation
         entry_event = {
             'type': 'image_entry',
-            'target_id': image_id,
+            # Use entity identifier for matching later
+            'target_id': group.primary_entity,
             'start_time': first_emphasis_time - 0.1,  # Start just before actual word
             'duration': transition_duration,
-            'properties': self._get_entry_animation_properties(style, image)
+            'properties': {
+                **self._get_entry_animation_properties(style, image),
+                'image_id': image_id,
+            }
         }
         events.append(entry_event)
         
@@ -447,12 +451,13 @@ class AnimationEngine:
             for point in group.emphasis_points:
                 pulse_event = {
                     'type': 'pulse_effect',
-                    'target_id': image_id,
+                    'target_id': group.primary_entity,
                     'start_time': point.get('start_time', 0),
                     'duration': 0.3,
                     'properties': {
                         'intensity': point.get('emphasis_score', 0.5),
-                        'easing': 'ease_out_back'
+                        'easing': 'ease_out_back',
+                        'image_id': image_id,
                     }
                 }
                 events.append(pulse_event)
@@ -460,10 +465,13 @@ class AnimationEngine:
         # 4. Exit animation
         exit_event = {
             'type': 'image_exit',
-            'target_id': image_id,
+            'target_id': group.primary_entity,
             'start_time': first_emphasis_time + duration - transition_duration,
             'duration': transition_duration,
-            'properties': self._get_exit_animation_properties(style, image)
+            'properties': {
+                **self._get_exit_animation_properties(style, image),
+                'image_id': image_id,
+            }
         }
         events.append(exit_event)
         
